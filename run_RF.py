@@ -1,6 +1,3 @@
-from sklearn.ensemble import RandomForestClassifier
-
-
 import matplotlib.pyplot as plt
 import numpy as np
 import glob
@@ -15,7 +12,7 @@ def read_spectra(datapath):
     #code based on read_NMFPM_spectra.py from Trystyn Berg
 
     #Set the target S/N in the continuum for the spectra
-    target_snr = 10.0
+    target_snr = 5.0
     #Noise is the standard deviation in the flux about the continuum
     noise = 1.0/target_snr
     #The percent variation in the noise for each pixel
@@ -29,6 +26,7 @@ def read_spectra(datapath):
     Ns_CIV_data, zs_CIV_data = [], []
     Ns_MgII_data, zs_MgII_data = [], []
     #loop over files and read fluxes into single numpy array
+
     for specfile in test_specs:
 
         data = np.loadtxt(specfile)
@@ -37,9 +35,10 @@ def read_spectra(datapath):
 
         #Apply the noise to the flux
         error = np.random.normal(loc=noise, scale=noise_scale*noise, size=len(wave))
-        flux = np.random.normal(loc=data[:,1], scale=error) # !!! Trying with noise free spectra first! remember to change back data[:,1] #
+        flux = np.random.normal(loc=data[:,1], scale=error) 
         
         fluxdata.append(flux)
+
 
         #Extract the input column density/redshift of the absorber(s)
         #Read the header, and split based on ;-delimited info
@@ -53,6 +52,7 @@ def read_spectra(datapath):
         NCIV = None
         zMgII = None
         zCIV = None
+
         #Loop through the :-delimited headers and extract the lists for each ion and column(N)/redshift(z)
         for val in header:
             if ':' in val:
@@ -95,14 +95,21 @@ def read_spectra(datapath):
 
     return fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data 
 
-def slice_input(fluxdata,wave, zs_CIV_data, zs_MgII_data):
+def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data ):
     #Slice spectrum into small regions and add tag for whether there is/isnt an absorber
     
     fluxslices = []
     waveslices = []
     is_abs = []
+    logNs = []
+    
+    nshow = 0
 
     for source in range(len(fluxdata)):
+
+        Ns_CIV = Ns_CIV_data[source]
+        Ns_MgII = Ns_MgII_data[source]
+
         spec = fluxdata[source]
 
         #indexs to split spectrum into
@@ -123,16 +130,36 @@ def slice_input(fluxdata,wave, zs_CIV_data, zs_MgII_data):
 
             #record if there is an absorber or not
             absorber_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_absorber]
-            
+
             if True in absorber_present:
                 is_abs.append(1)
+
+                #record column densities
+                matchidx = np.where(absorber_present)[0][0]
+
+                if matchidx < len(obs_CIV_1548):          
+                    logNs.append(['CIV',Ns_CIV[matchidx]])
+                else:
+                    logNs.append(['MgII',Ns_MgII[matchidx-len(obs_CIV_1548)]])
+            
+
             else:
                 is_abs.append(0)
+                logNs.append(['-',0])
+            
+            """
+            if (nshow <10) and (True in absorber_present):
+                plt.plot(wave_slice,flux_slice)
+                plt.show()
+                plt.close()
+                nshow += 1
+            """
 
-    return fluxslices,waveslices,is_abs
+
+    return fluxslices, waveslices, is_abs, logNs
 
 
-def preprocess(fluxslices, waveslices,is_abs):
+def preprocess(fluxslices, waveslices, is_abs, logNs):
     
     ###
     #put preprocessing,e.g. scaling steps here
@@ -141,16 +168,19 @@ def preprocess(fluxslices, waveslices,is_abs):
     # Train-test split
     idx_split = len(fluxslices)/2
 
-    train = fluxslices[:idx_split]
+    train       = fluxslices[:idx_split]
     train_isabs = is_abs[:idx_split]
-    test = fluxslices[idx_split:]
-    test_isabs = is_abs[idx_split:]
+    train_logNs = logNs[:idx_split]
 
-    return train, train_isabs, test, test_isabs
+    test        = fluxslices[idx_split:]
+    test_isabs  = is_abs[idx_split:]
+    test_logNs  = logNs[idx_split:]
 
+    return train, train_isabs, test, test_isabs, train_logNs, test_logNs
+ 
 def run_RF(train, train_isabs, test, test_isabs):
 
-    #build the forest max_features=400 for no binning
+    #build the forest 
     Forest=RandomForestClassifier(n_estimators=1000,criterion='gini',max_depth=None,
                                   min_samples_split=4,min_samples_leaf=1,max_features=40,
                                   max_leaf_nodes=None,bootstrap=True,oob_score=True,
@@ -160,20 +190,41 @@ def run_RF(train, train_isabs, test, test_isabs):
 
     return model
 
+def plotRecoveryFraction():
+
+    logNbins = np.arange(13,15,0.2)
+    
+    recoveryFrac = []
+
+    for n in range(1,len(logNbins)):
+
+        minN = logNbins[n-1]
+        maxN = logNbins[n]
+
+
+
+    return
+
+
 datapath = "/home/emma/Documents/WEAVE/data/NMFPM_data/"
 
+print("Reading spectra and adding noise...")
 fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath)
 
-fluxslices, waveslices,is_abs = slice_input(fluxdata,wave, zs_CIV_data, zs_MgII_data)
+print("Slicing spectra...")
+fluxslices, waveslices, is_abs, logNs = slice_input(fluxdata,wave,Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
 
 nabs = len(np.array(is_abs)[np.array(is_abs)==1])
 nempty = len(np.array(is_abs)[np.array(is_abs)==0])
 
-train, train_isabs, test, test_isabs = preprocess(fluxslices, waveslices,is_abs )
+print("Preprocessing data...")
+train, train_isabs, test, test_isabs, train_logNs, test_logNs = preprocess(fluxslices, waveslices, is_abs, logNs)
 
+print("Runnning Random Forest...")
 model = run_RF(train, train_isabs, test, test_isabs)
 
-#classify absorber or not
+print("Predictions...")
+#classify whether test sample are absorber or not
 preds = model.predict(test)
 
 test_isabs=np.array(test_isabs)
@@ -192,6 +243,18 @@ NotAbs_and_NotpredAbs = np.where(( test_isabs != 1) & (preds!=1))
 
 
 print(len(isAbs_and_predAbs[0]),len(isAbs_and_NotpredAbs[0]),len(NotAbs_and_predAbs[0]),len(NotAbs_and_NotpredAbs[0]))
+
+
+print("Creating recovery fraction plots...")
+
+plotRecoveryFraction(test_isabs,preds,test_logNs)
+
+
+
+
+
+
+
 
 
 
