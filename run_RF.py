@@ -8,11 +8,9 @@ from sklearn.metrics import confusion_matrix, classification_report
 from sklearn.decomposition import NMF 
 
 
-def read_spectra(datapath):
+def read_spectra(datapath,target_snr):
     #code based on read_NMFPM_spectra.py from Trystyn Berg
 
-    #Set the target S/N in the continuum for the spectra
-    target_snr = 5.0
     #Noise is the standard deviation in the flux about the continuum
     noise = 1.0/target_snr
     #The percent variation in the noise for each pixel
@@ -190,26 +188,67 @@ def run_RF(train, train_isabs, test, test_isabs):
 
     return model
 
-def plotRecoveryFraction():
+def plotRecoveryFraction(test_isabs,preds,test_logNs):
 
-    logNbins = np.arange(13,15,0.2)
-    
-    recoveryFrac = []
+    binsize = 0.3
+    logNbins = np.arange(12,15.75,binsize)
+    Nvals = np.array(test_logNs)[:,1]
+    Ntype = np.array(test_logNs)[:,0]
+    recoveryFracs_CIV = []
+    recoveryFracsErr_CIV = []
+    recoveryFracs_MgII = []
+    recoveryFracsErr_MgII = []
 
     for n in range(1,len(logNbins)):
 
         minN = logNbins[n-1]
         maxN = logNbins[n]
 
+        Nmask = [(float(nv) > minN) & (float(nv) <= maxN) for nv in Nvals]
 
+        CIVmask = [t == 'CIV' for t in Ntype]
+        MgIImask = [t == 'MgII' for t in Ntype]
+
+        preds_bin_CIV = preds[np.array(Nmask) & np.array(CIVmask)]
+        preds_bin_MgII = preds[np.array(Nmask) & np.array(MgIImask)]
+       
+        #number of true absorbers is the length of the array
+        true_abs_CIV = float(len(preds_bin_CIV))
+        recovered_abs_CIV = float(len(preds_bin_CIV[preds_bin_CIV == 1]))
+        true_abs_MgII = float(len(preds_bin_MgII))
+        recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII == 1]))
+
+        
+        if true_abs == 0:
+            recoveryFracs_CIV.append(0)
+            recoveryFracsErr_CIV.append(0)
+            recoveryFracs_MgII.append(0)
+            recoveryFracsErr_MgII.append(0)
+        else:
+            recoveryFracs_CIV.append(recovered_abs_CIV/true_abs_CIV)
+            recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
+            recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
+            recoveryFracsEr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
+
+    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
+    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
+    plt.legend()
+    plt.xlabel('logN')
+    plt.ylabel('Recovery Fraction')
+    plt.show()
+    plt.close()
 
     return
 
+########################################################
 
 datapath = "/home/emma/Documents/WEAVE/data/NMFPM_data/"
 
 print("Reading spectra and adding noise...")
-fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath)
+
+#Set the target S/N in the continuum for the spectra
+target_snr = 5.0
+fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
 
 print("Slicing spectra...")
 fluxslices, waveslices, is_abs, logNs = slice_input(fluxdata,wave,Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
@@ -241,12 +280,9 @@ NotAbs_and_predAbs = np.where(( test_isabs != 1) & (preds==1))
 # Number of not absorber predicted to not be absorber
 NotAbs_and_NotpredAbs = np.where(( test_isabs != 1) & (preds!=1))
 
-
 print(len(isAbs_and_predAbs[0]),len(isAbs_and_NotpredAbs[0]),len(NotAbs_and_predAbs[0]),len(NotAbs_and_NotpredAbs[0]))
 
-
-print("Creating recovery fraction plots...")
-
+print("Creating recovery fraction plot...")
 plotRecoveryFraction(test_isabs,preds,test_logNs)
 
 
