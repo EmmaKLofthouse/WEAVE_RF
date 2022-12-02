@@ -7,7 +7,6 @@ from sklearn.model_selection import cross_val_score, GridSearchCV
 from sklearn.metrics import confusion_matrix, classification_report 
 from sklearn.decomposition import NMF 
 
-
 def read_spectra(datapath,target_snr):
     #code based on read_NMFPM_spectra.py from Trystyn Berg
 
@@ -36,7 +35,6 @@ def read_spectra(datapath,target_snr):
         flux = np.random.normal(loc=data[:,1], scale=error) 
         
         fluxdata.append(flux)
-
 
         #Extract the input column density/redshift of the absorber(s)
         #Read the header, and split based on ;-delimited info
@@ -99,6 +97,7 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
     fluxslices = []
     waveslices = []
     is_abs = []
+    
     logNs = []
     
     nshow = 0
@@ -130,29 +129,28 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
             absorber_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_absorber]
 
             if True in absorber_present:
-                is_abs.append(1)
 
                 #record column densities
                 matchidx = np.where(absorber_present)[0][0]
 
                 if matchidx < len(obs_CIV_1548):          
                     logNs.append(['CIV',Ns_CIV[matchidx]])
+                    is_abs.append(1)
                 else:
                     logNs.append(['MgII',Ns_MgII[matchidx-len(obs_CIV_1548)]])
-            
+                    is_abs.append(2)
 
             else:
                 is_abs.append(0)
                 logNs.append(['-',0])
             
             """
-            if (nshow <10) and (True in absorber_present):
+            if (nshow <20) and (True in absorber_present):
                 plt.plot(wave_slice,flux_slice)
                 plt.show()
                 plt.close()
                 nshow += 1
             """
-
 
     return fluxslices, waveslices, is_abs, logNs
 
@@ -164,7 +162,7 @@ def preprocess(fluxslices, waveslices, is_abs, logNs):
     ###
 
     # Train-test split
-    idx_split = len(fluxslices)/2
+    idx_split = int(len(fluxslices)/1.5)
 
     train       = fluxslices[:idx_split]
     train_isabs = is_abs[:idx_split]
@@ -180,7 +178,7 @@ def run_RF(train, train_isabs, test, test_isabs):
 
     #build the forest 
     Forest=RandomForestClassifier(n_estimators=1000,criterion='gini',max_depth=None,
-                                  min_samples_split=4,min_samples_leaf=1,max_features=40,
+                                  min_samples_split=10,min_samples_leaf=1,max_features=40,
                                   max_leaf_nodes=None,bootstrap=True,oob_score=True,
                                   n_jobs=40,random_state=120,verbose=0,class_weight='balanced')
 
@@ -219,16 +217,20 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
         recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII == 1]))
 
         
-        if true_abs == 0:
+        if true_abs_CIV == 0:
             recoveryFracs_CIV.append(0)
             recoveryFracsErr_CIV.append(0)
-            recoveryFracs_MgII.append(0)
-            recoveryFracsErr_MgII.append(0)
         else:
             recoveryFracs_CIV.append(recovered_abs_CIV/true_abs_CIV)
             recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
+
+        if true_abs_MgII == 0:
+            recoveryFracs_MgII.append(0)
+            recoveryFracsErr_MgII.append(0)
+        else:
             recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
-            recoveryFracsEr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
+            recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
+
 
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
@@ -239,6 +241,123 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
     plt.close()
 
     return
+
+def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
+
+    binsize = 0.3
+    logNbins = np.arange(12,15.75,binsize)
+    Nvals = np.array(test_logNs)[:,1]
+    Ntype = np.array(test_logNs)[:,0]
+
+    recoveryFracs_CIV = []
+    recoveryFracsErr_CIV = []
+    recoveryFracs_MgII = []
+    recoveryFracsErr_MgII = []
+
+    for n in range(1,len(logNbins)):
+
+        minN = logNbins[n-1]
+        maxN = logNbins[n]
+
+        Nmask = [(float(nv) > minN) & (float(nv) <= maxN) for nv in Nvals]
+
+        CIVmask = [t == 'CIV' for t in Ntype]
+        MgIImask = [t == 'MgII' for t in Ntype]
+
+        preds_bin_CIV = preds[np.array(Nmask) & np.array(CIVmask)]
+        preds_bin_MgII = preds[np.array(Nmask) & np.array(MgIImask)]
+       
+        #number of true absorbers is the length of the array
+        true_abs_CIV = float(len(preds_bin_CIV))
+        recovered_abs_CIV = float(len(preds_bin_CIV[preds_bin_CIV == 1]))
+        true_abs_MgII = float(len(preds_bin_MgII))
+        recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII == 2]))
+
+        
+        if true_abs_CIV == 0:
+            recoveryFracs_CIV.append(-999)
+            recoveryFracsErr_CIV.append(-999)
+        else:
+            recoveryFracs_CIV.append(recovered_abs_CIV/true_abs_CIV)
+            try:
+                recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
+            except:
+                recoveryFracsErr_CIV.append(0)
+
+        if true_abs_MgII == 0:
+            recoveryFracs_MgII.append(-999)
+            recoveryFracsErr_MgII.append(-999)
+        else:
+            recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
+            try:
+                recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
+            except:
+                recoveryFracsErr_MgII.append(0)
+
+    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
+    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
+    plt.legend()
+    plt.ylim(0,1.1)
+    plt.title('Identifying correct metal')
+    plt.xlabel('logN')
+    plt.ylabel('Recovery Fraction')
+    plt.show()
+    plt.close()
+
+    return
+
+def plotIdentifications(test_isabs,preds,test_logNs):
+    """
+    Plot histograms of number of true absorbers, number correctly identified and those identified but as the wrong absorber
+
+    """
+
+    binsize = 0.3
+    logNbins = np.arange(12,15.75,binsize)
+    Nvals = np.array(test_logNs)[:,1]
+    Ntype = np.array(test_logNs)[:,0]
+
+    Total_CIV = []
+    Correct_CIV = []
+    MisIdentified_CIV = []
+
+    Total_MgII = []
+    Correct_MgII = []
+    MisIdentified_MgII = []
+
+    for n in range(1,len(logNbins)):
+
+        minN = logNbins[n-1]
+        maxN = logNbins[n]
+
+        Nmask = [(float(nv) > minN) & (float(nv) <= maxN) for nv in Nvals]
+
+        CIVmask = [t == 'CIV' for t in Ntype]
+        MgIImask = [t == 'MgII' for t in Ntype]
+
+        preds_bin_CIV = preds[np.array(Nmask) & np.array(CIVmask)]
+        preds_bin_MgII = preds[np.array(Nmask) & np.array(MgIImask)]
+       
+        Total_CIV.append(float(len(preds_bin_CIV)))
+        Correct_CIV.append(float(len(preds_bin_CIV[preds_bin_CIV == 1])))
+        MisIdentified_CIV.append(float(len(preds_bin_CIV[preds_bin_CIV == 2])))
+
+        Total_MgII.append(float(len(preds_bin_MgII)))
+        Correct_MgII.append(float(len(preds_bin_MgII[preds_bin_MgII == 2])))
+        MisIdentified_MgII.append(float(len(preds_bin_MgII[preds_bin_MgII == 1])))
+
+    plt.step(logNbins[:-1]+binsize/2,Total_CIV,color='k',label='All CIV')
+    plt.step(logNbins[:-1]+binsize/2,Correct_CIV,color='g',label='Correctly identified \n as CIV')
+    plt.step(logNbins[:-1]+binsize/2,MisIdentified_CIV,color='r',label='Incorrectly identified \n as MgII')
+
+    plt.legend()
+    plt.xlabel('logN')
+    plt.ylabel('Number of absorbers')
+    plt.show()
+    plt.close()
+
+    return
+
 
 ########################################################
 
@@ -268,24 +387,30 @@ preds = model.predict(test)
 
 test_isabs=np.array(test_isabs)
 
+For absorber/not absorber:
 # Number of True absorber predicted to be absorber
-isAbs_and_predAbs = np.where(( test_isabs == 1) & (preds==1))
+isAbs_and_predAbs = np.where(( test_isabs >= 1) & (preds >= 1))
 
 # Number of True absorber not predicted to be absorber
-isAbs_and_NotpredAbs = np.where(( test_isabs == 1) & (preds!=1))
+isAbs_and_NotpredAbs = np.where(( test_isabs >= 1) & (preds == 0))
 
 # Number of not absorber predicted to be absorber
-NotAbs_and_predAbs = np.where(( test_isabs != 1) & (preds==1))
+NotAbs_and_predAbs = np.where(( test_isabs == 0) & (preds >= 1))
 
 # Number of not absorber predicted to not be absorber
-NotAbs_and_NotpredAbs = np.where(( test_isabs != 1) & (preds!=1))
+NotAbs_and_NotpredAbs = np.where(( test_isabs == 0) & (preds==0))
 
 print(len(isAbs_and_predAbs[0]),len(isAbs_and_NotpredAbs[0]),len(NotAbs_and_predAbs[0]),len(NotAbs_and_NotpredAbs[0]))
 
-print("Creating recovery fraction plot...")
+print("Creating recovery fraction plot for any kind of absorption...")
 plotRecoveryFraction(test_isabs,preds,test_logNs)
 
 
+print("Creating recovery fraction plot for detection of metal types...")
+plotRecoveryFraction_type(test_isabs,preds,test_logNs)
+
+
+plotIdentifications(test_isabs,preds,test_logNs)
 
 
 
