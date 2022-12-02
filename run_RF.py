@@ -346,15 +346,42 @@ def plotIdentifications(test_isabs,preds,test_logNs):
         Correct_MgII.append(float(len(preds_bin_MgII[preds_bin_MgII == 2])))
         MisIdentified_MgII.append(float(len(preds_bin_MgII[preds_bin_MgII == 1])))
 
-    plt.step(logNbins[:-1]+binsize/2,Total_CIV,color='k',label='All CIV')
-    plt.step(logNbins[:-1]+binsize/2,Correct_CIV,color='g',label='Correctly identified \n as CIV')
-    plt.step(logNbins[:-1]+binsize/2,MisIdentified_CIV,color='r',label='Incorrectly identified \n as MgII')
+    #Plot CIV results
+    #plt.step(logNbins[:-1]+binsize/2,Total_CIV,color='k',label='All CIV')
+    #plt.step(logNbins[:-1]+binsize/2,Correct_CIV,color='g',label='Correctly identified \n as CIV')
+    #plt.step(logNbins[:-1]+binsize/2,np.array(Correct_CIV) + np.array(MisIdentified_CIV),color='r',label='Plus Incorrectly identified \n as MgII')
+
+    plt.fill_between(logNbins[:-1]+binsize/2,Total_CIV,np.array(Correct_CIV) + np.array(MisIdentified_CIV),color='k',label='All CIV', step="pre", alpha=0.2)
+    plt.fill_between(logNbins[:-1]+binsize/2,Correct_CIV,color='g',label='Correctly identified as CIV', step="pre", alpha=0.4)
+    plt.fill_between(logNbins[:-1]+binsize/2,np.array(Correct_CIV) + np.array(MisIdentified_CIV),Correct_CIV,color='r',label='Plus Incorrectly identified as MgII', step="pre", alpha=0.4)
 
     plt.legend()
     plt.xlabel('logN')
+    plt.ylim(0,np.max(Total_CIV)*1.3)
+
     plt.ylabel('Number of absorbers')
     plt.show()
     plt.close()
+
+    #Plot MgII results
+    #plt.step(logNbins[:-1]+binsize/2,Total_MgII,color='k',label='All MgII')
+    #plt.step(logNbins[:-1]+binsize/2,Correct_MgII,color='g',label='Correctly identified \n as MgII')
+    #plt.step(logNbins[:-1]+binsize/2,np.array(Correct_MgII) + np.array(MisIdentified_MgII),color='r',label='Plus Incorrectly identified \n as CIV')
+
+
+    plt.fill_between(logNbins[:-1]+binsize/2,Total_MgII,np.array(Correct_MgII) + np.array(MisIdentified_MgII),color='k',label='All MgII', step="pre", alpha=0.2)
+    plt.fill_between(logNbins[:-1]+binsize/2,Correct_MgII,color='g',label='Correctly identified as MgII', step="pre", alpha=0.4)
+    plt.fill_between(logNbins[:-1]+binsize/2,np.array(Correct_MgII) + np.array(MisIdentified_MgII),Correct_MgII,color='r',label='Plus Incorrectly identified as CIV', step="pre", alpha=0.4)
+
+
+    plt.legend()
+    plt.xlabel('logN')
+    plt.ylim(0,np.max(Total_MgII)*1.2)
+
+    plt.ylabel('Number of absorbers')
+    plt.show()
+    plt.close()
+
 
     return
 
@@ -366,7 +393,7 @@ datapath = "/home/emma/Documents/WEAVE/data/NMFPM_data/"
 print("Reading spectra and adding noise...")
 
 #Set the target S/N in the continuum for the spectra
-target_snr = 5.0
+target_snr = 50.0
 fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
 
 print("Slicing spectra...")
@@ -387,7 +414,7 @@ preds = model.predict(test)
 
 test_isabs=np.array(test_isabs)
 
-For absorber/not absorber:
+#For absorber/not absorber:
 # Number of True absorber predicted to be absorber
 isAbs_and_predAbs = np.where(( test_isabs >= 1) & (preds >= 1))
 
