@@ -114,33 +114,47 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
         
         # determine observed wavelengths of absorbers
         obs_CIV_1548 = 1548*(zs_CIV_data[source] + 1)
-        obs_MgII_2796 = 2796*(zs_MgII_data[source] + 1)
-        
-        # for any kind of absorber
-        obs_absorber = np.concatenate([obs_CIV_1548,obs_MgII_2796])
+        obs_CIV_1550 = 1550*(zs_CIV_data[source] + 1)
 
+        obs_MgII_2796 = 2796.4*(zs_MgII_data[source] + 1)
+        obs_MgII_2803 = 2803.5*(zs_MgII_data[source] + 1)
+ 
         for i in range(1,len(idxs-1)):
+
             flux_slice = spec[idxs[i-1]:idxs[i]] 
-            fluxslices.append(flux_slice)
             wave_slice = wave[idxs[i-1]:idxs[i]]
-            waveslices.append(wave_slice)
 
             #record if there is an absorber or not
-            absorber_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_absorber]
+            CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548]
+            CIV1550_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1550]    
 
-            if True in absorber_present:
+            MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796]    
+            MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803]    
+
+            if (True in CIV1548_present) or (True in CIV1550_present) or (True in MgII2796_present) or (True in MgII2803_present):
+
+                #check that the absorber is not cut off, if it is, skip it
+                if ((True in CIV1548_present) != (True in CIV1550_present)) | ((True in MgII2796_present) != (True in MgII2803_present)):
+                    continue
+
+                # otherwise add to flux and wavelength arrays
+                fluxslices.append(flux_slice)
+                waveslices.append(wave_slice)
 
                 #record column densities
-                matchidx = np.where(absorber_present)[0][0]
-
-                if matchidx < len(obs_CIV_1548):          
+                if True in CIV1548_present:
+                    matchidx = np.where(CIV1548_present)[0][0]       
                     logNs.append(['CIV',Ns_CIV[matchidx]])
                     is_abs.append(1)
-                else:
-                    logNs.append(['MgII',Ns_MgII[matchidx-len(obs_CIV_1548)]])
+                elif True in MgII2796_present:
+                    matchidx = np.where(MgII2796_present)[0][0]       
+                    logNs.append(['MgII',Ns_MgII[matchidx]])
                     is_abs.append(2)
 
             else:
+                fluxslices.append(flux_slice)
+                waveslices.append(wave_slice)
+
                 is_abs.append(0)
                 logNs.append(['-',0])
             
@@ -212,12 +226,15 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
        
         #number of true absorbers is the length of the array
         true_abs_CIV = float(len(preds_bin_CIV))
-        recovered_abs_CIV = float(len(preds_bin_CIV[preds_bin_CIV == 1]))
+        recovered_abs_CIV = float(len(preds_bin_CIV[preds_bin_CIV >= 1]))
         true_abs_MgII = float(len(preds_bin_MgII))
-        recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII == 1]))
+        recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII >= 1]))
 
         
         if true_abs_CIV == 0:
+            recoveryFracs_CIV.append(-999)
+            recoveryFracsErr_CIV.append(-999)
+        elif recovered_abs_CIV == 0:
             recoveryFracs_CIV.append(0)
             recoveryFracsErr_CIV.append(0)
         else:
@@ -225,6 +242,9 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
             recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
 
         if true_abs_MgII == 0:
+            recoveryFracs_MgII.append(-999.)
+            recoveryFracsErr_MgII.append(-999)
+        elif recovered_abs_MgII == 0:
             recoveryFracs_MgII.append(0)
             recoveryFracsErr_MgII.append(0)
         else:
@@ -236,6 +256,7 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
     plt.legend()
     plt.xlabel('logN')
+    plt.ylim(0,1.1)
     plt.ylabel('Recovery Fraction')
     plt.show()
     plt.close()
@@ -277,22 +298,23 @@ def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
         if true_abs_CIV == 0:
             recoveryFracs_CIV.append(-999)
             recoveryFracsErr_CIV.append(-999)
+        elif recovered_abs_CIV == 0:
+            recoveryFracs_CIV.append(0)
+            recoveryFracsErr_CIV.append(0)
         else:
             recoveryFracs_CIV.append(recovered_abs_CIV/true_abs_CIV)
-            try:
-                recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
-            except:
-                recoveryFracsErr_CIV.append(0)
+            recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
 
         if true_abs_MgII == 0:
-            recoveryFracs_MgII.append(-999)
+            recoveryFracs_MgII.append(-999.)
             recoveryFracsErr_MgII.append(-999)
+        elif recovered_abs_MgII == 0:
+            recoveryFracs_MgII.append(0)
+            recoveryFracsErr_MgII.append(0)
         else:
             recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
-            try:
-                recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
-            except:
-                recoveryFracsErr_MgII.append(0)
+            recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
+
 
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
@@ -393,7 +415,7 @@ datapath = "/home/emma/Documents/WEAVE/data/NMFPM_data/"
 print("Reading spectra and adding noise...")
 
 #Set the target S/N in the continuum for the spectra
-target_snr = 50.0
+target_snr = 5.0
 fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
 
 print("Slicing spectra...")
