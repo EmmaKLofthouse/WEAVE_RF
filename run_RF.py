@@ -110,7 +110,11 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
         spec = fluxdata[source]
 
         #indexs to split spectrum into
-        idxs = np.arange(0,len(spec),200)    
+        num_idxs = 100
+        idxs = list(np.arange(0,len(spec),num_idxs))
+
+        #repeat but with a shift so that any absobers missed due to being split over the edge will be included
+        idxs+=list(np.arange(num_idxs/2,len(spec),num_idxs))
         
         # determine observed wavelengths of absorbers
         obs_CIV_1548 = 1548*(zs_CIV_data[source] + 1)
@@ -119,7 +123,10 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
         obs_MgII_2796 = 2796.4*(zs_MgII_data[source] + 1)
         obs_MgII_2803 = 2803.5*(zs_MgII_data[source] + 1)
  
-        for i in range(1,len(idxs-1)):
+        for i in range(1,len(idxs)):
+            
+            if idxs[i-1] > idxs[i]: #skip where the two idx arrays (shifts and non-shifted) are joined
+                continue
 
             flux_slice = spec[idxs[i-1]:idxs[i]] 
             wave_slice = wave[idxs[i-1]:idxs[i]]
@@ -251,7 +258,6 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
             recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
             recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
 
-
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
     plt.legend()
@@ -314,7 +320,6 @@ def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
         else:
             recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
             recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
-
 
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
@@ -404,7 +409,6 @@ def plotIdentifications(test_isabs,preds,test_logNs):
     plt.show()
     plt.close()
 
-
     return
 
 
@@ -454,11 +458,10 @@ print(len(isAbs_and_predAbs[0]),len(isAbs_and_NotpredAbs[0]),len(NotAbs_and_pred
 print("Creating recovery fraction plot for any kind of absorption...")
 plotRecoveryFraction(test_isabs,preds,test_logNs)
 
-
 print("Creating recovery fraction plot for detection of metal types...")
 plotRecoveryFraction_type(test_isabs,preds,test_logNs)
 
-
+print("Creating identification plots...")
 plotIdentifications(test_isabs,preds,test_logNs)
 
 
