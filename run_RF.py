@@ -6,6 +6,8 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.model_selection import cross_val_score, GridSearchCV
 from sklearn.metrics import confusion_matrix, classification_report 
 from sklearn.decomposition import NMF 
+from multiprocessing import Pool
+
 
 def read_spectra(datapath,target_snr):
     #code based on read_NMFPM_spectra.py from Trystyn Berg
