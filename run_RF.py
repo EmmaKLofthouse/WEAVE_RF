@@ -7,7 +7,9 @@ from sklearn.model_selection import cross_val_score, GridSearchCV
 from sklearn.metrics import confusion_matrix, classification_report 
 from sklearn.decomposition import NMF 
 from multiprocessing import Pool
-
+from pathlib import Path
+import os
+import sys
 
 def read_spectra(datapath,target_snr):
     #code based on read_NMFPM_spectra.py from Trystyn Berg
@@ -19,7 +21,6 @@ def read_spectra(datapath,target_snr):
 
     #Get all spectra files from stored directory
     test_specs = glob.glob(datapath + 'nmf_pm_MgII_CIV_fake_*')
-
     fluxdata = []
 
     Ns_CIV_data, zs_CIV_data = [], []
@@ -27,7 +28,7 @@ def read_spectra(datapath,target_snr):
     #loop over files and read fluxes into single numpy array
 
     for specfile in test_specs:
-
+        #print(specfile)
         data = np.loadtxt(specfile)
 
         wave = data[:,0]
@@ -116,7 +117,7 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
         idxs = list(np.arange(0,len(spec),num_idxs))
 
         #repeat but with a shift so that any absobers missed due to being split over the edge will be included
-        idxs+=list(np.arange(num_idxs/2,len(spec),num_idxs))
+        idxs+=list(np.arange(int(num_idxs/2),len(spec),num_idxs))
         
         # determine observed wavelengths of absorbers
         obs_CIV_1548 = 1548*(zs_CIV_data[source] + 1)
@@ -124,12 +125,13 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
 
         obs_MgII_2796 = 2796.4*(zs_MgII_data[source] + 1)
         obs_MgII_2803 = 2803.5*(zs_MgII_data[source] + 1)
+       
  
         for i in range(1,len(idxs)):
             
             if idxs[i-1] > idxs[i]: #skip where the two idx arrays (shifts and non-shifted) are joined
                 continue
-
+            #print(idxs[i-1], idxs[i])
             flux_slice = spec[idxs[i-1]:idxs[i]] 
             wave_slice = wave[idxs[i-1]:idxs[i]]
 
@@ -266,7 +268,7 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
     plt.xlabel('logN')
     plt.ylim(0,1.1)
     plt.ylabel('Recovery Fraction')
-    plt.show()
+    plt.savefig('rf_1.png')
     plt.close()
 
     return
@@ -330,7 +332,7 @@ def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
     plt.title('Identifying correct metal')
     plt.xlabel('logN')
     plt.ylabel('Recovery Fraction')
-    plt.show()
+    plt.savefig('rf_2.png')
     plt.close()
 
     return
@@ -389,7 +391,7 @@ def plotIdentifications(test_isabs,preds,test_logNs):
     plt.ylim(0,np.max(Total_CIV)*1.3)
 
     plt.ylabel('Number of absorbers')
-    plt.show()
+    plt.savefig('idents_1.png')
     plt.close()
 
     #Plot MgII results
@@ -408,16 +410,16 @@ def plotIdentifications(test_isabs,preds,test_logNs):
     plt.ylim(0,np.max(Total_MgII)*1.2)
 
     plt.ylabel('Number of absorbers')
-    plt.show()
+    plt.savefig('idents_2.png')
     plt.close()
 
     return
 
 
 ########################################################
-
-datapath = "/home/emma/Documents/WEAVE/data/NMFPM_data/"
-
+scriptpath = os.path.dirname(os.path.abspath(__file__))
+datapath = scriptpath + "/NMFPM_data/"
+print(datapath)
 print("Reading spectra and adding noise...")
 
 #Set the target S/N in the continuum for the spectra
@@ -430,11 +432,13 @@ fluxslices, waveslices, is_abs, logNs = slice_input(fluxdata,wave,Ns_CIV_data, z
 nabs = len(np.array(is_abs)[np.array(is_abs)==1])
 nempty = len(np.array(is_abs)[np.array(is_abs)==0])
 
-print("Preprocessing data...")
-train, train_isabs, test, test_isabs, train_logNs, test_logNs = preprocess(fluxslices, waveslices, is_abs, logNs)
 
-print("Runnning Random Forest...")
-model = run_RF(train, train_isabs, test, test_isabs)
+if __name__ == "__main__":
+    print("Preprocessing data...")
+    train, train_isabs, test, test_isabs, train_logNs, test_logNs = preprocess(fluxslices, waveslices, is_abs, logNs)
+
+    print("Runnning Random Forest...")
+    model = run_RF(train, train_isabs, test, test_isabs)
 
 print("Predictions...")
 #classify whether test sample are absorber or not
