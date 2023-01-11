@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use('agg')
+
 import matplotlib.pyplot as plt
 import numpy as np
 import glob
@@ -142,33 +145,48 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
             MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796]    
             MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803]    
 
-            if (True in CIV1548_present) or (True in CIV1550_present) or (True in MgII2796_present) or (True in MgII2803_present):
+            #add slice to array of inputs
+            fluxslices.append(flux_slice)
+            waveslices.append(wave_slice)
 
-                #check that the absorber is not cut off, if it is, skip it
-                if ((True in CIV1548_present) != (True in CIV1550_present)) | ((True in MgII2796_present) != (True in MgII2803_present)):
-                    continue
-
-                # otherwise add to flux and wavelength arrays
-                fluxslices.append(flux_slice)
-                waveslices.append(wave_slice)
-
-                #record column densities
-                if True in CIV1548_present:
-                    matchidx = np.where(CIV1548_present)[0][0]       
-                    logNs.append(['CIV',Ns_CIV[matchidx]])
-                    is_abs.append(1)
-                elif True in MgII2796_present:
-                    matchidx = np.where(MgII2796_present)[0][0]       
-                    logNs.append(['MgII',Ns_MgII[matchidx]])
-                    is_abs.append(2)
-
-            else:
-                fluxslices.append(flux_slice)
-                waveslices.append(wave_slice)
-
+            #if there is no absorption present, flag it as 0
+            if (True not in CIV1548_present) and (True not in CIV1550_present) and (True not in MgII2796_present) and (True not in MgII2803_present):
                 is_abs.append(0)
                 logNs.append(['-',0])
-            
+                continue
+
+            #If the absorber is cut off, flag it as 3
+            if ((True in CIV1548_present) != (True in CIV1550_present)) | ((True in MgII2796_present) != (True in MgII2803_present)):
+                is_abs.append(3)
+
+                if True in CIV1548_present:
+                    matchidx = np.where(CIV1548_present)[0][0]       
+                    logNs.append(['partial CIV',Ns_CIV[matchidx]])
+                    continue
+                elif True in CIV1550_present:
+                    matchidx = np.where(CIV1550_present)[0][0]       
+                    logNs.append(['partial CIV',Ns_CIV[matchidx]])  
+                    continue                     
+                elif True in MgII2796_present:
+                    matchidx = np.where(MgII2796_present)[0][0]       
+                    logNs.append(['partial MgII',Ns_MgII[matchidx]])
+                    continue
+                elif True in MgII2803_present:
+                    matchidx = np.where(MgII2803_present)[0][0]       
+                    logNs.append(['partial MgII',Ns_MgII[matchidx]])
+                    continue
+
+            #if full doublet is present flag it as 1 for CIV and 2 for MgII
+            if True in CIV1548_present:
+                matchidx = np.where(CIV1548_present)[0][0]       
+                logNs.append(['CIV',Ns_CIV[matchidx]])
+                is_abs.append(1)
+            elif True in MgII2796_present:
+                matchidx = np.where(MgII2796_present)[0][0]       
+                logNs.append(['MgII',Ns_MgII[matchidx]])
+                is_abs.append(2)
+
+
             """
             if (nshow <20) and (True in absorber_present):
                 plt.plot(wave_slice,flux_slice)
@@ -268,7 +286,7 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
     plt.xlabel('logN')
     plt.ylim(0,1.1)
     plt.ylabel('Recovery Fraction')
-    plt.savefig('rf_1.png')
+    plt.savefig('plots/rf_1.pdf')
     plt.close()
 
     return
@@ -285,6 +303,9 @@ def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
     recoveryFracs_MgII = []
     recoveryFracsErr_MgII = []
 
+    recoveryFracs_partial = []
+    recoveryFracsErr_partial = []
+
     for n in range(1,len(logNbins)):
 
         minN = logNbins[n-1]
@@ -294,48 +315,63 @@ def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
 
         CIVmask = [t == 'CIV' for t in Ntype]
         MgIImask = [t == 'MgII' for t in Ntype]
+        partialMgIImask = [t == 'partial MgII' for t in Ntype]
+        partialCIVmask = [t == 'partial CIV' for t in Ntype]
 
         preds_bin_CIV = preds[np.array(Nmask) & np.array(CIVmask)]
         preds_bin_MgII = preds[np.array(Nmask) & np.array(MgIImask)]
-       
+        preds_bin_partialCIV = preds[np.array(Nmask) & np.array(partialCIVmask)]
+        preds_bin_partialMgII = preds[np.array(Nmask) & np.array(partialMgIImask)]        
+
         #number of true absorbers is the length of the array
         true_abs_CIV = float(len(preds_bin_CIV))
         recovered_abs_CIV = float(len(preds_bin_CIV[preds_bin_CIV == 1]))
         true_abs_MgII = float(len(preds_bin_MgII))
         recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII == 2]))
 
-        
-        if true_abs_CIV == 0:
-            recoveryFracs_CIV.append(-999)
-            recoveryFracsErr_CIV.append(-999)
-        elif recovered_abs_CIV == 0:
-            recoveryFracs_CIV.append(0)
-            recoveryFracsErr_CIV.append(0)
-        else:
-            recoveryFracs_CIV.append(recovered_abs_CIV/true_abs_CIV)
-            recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
+        #partial absorption
+        true_abs_partialCIV = float(len(preds_bin_partialCIV))
+        recovered_abs_partialCIV = float(len(preds_bin_partialCIV[preds_bin_partialCIV == 3]))
+        true_abs_partialMgII = float(len(preds_bin_partialMgII))
+        recovered_abs_partialMgII = float(len(preds_bin_partialMgII[preds_bin_partialMgII == 3]))
 
-        if true_abs_MgII == 0:
-            recoveryFracs_MgII.append(-999.)
-            recoveryFracsErr_MgII.append(-999)
-        elif recovered_abs_MgII == 0:
-            recoveryFracs_MgII.append(0)
-            recoveryFracsErr_MgII.append(0)
-        else:
-            recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
-            recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
+        #calculate recovery fraction
+        CIVfrac,CIVfracerr = calc_recovery(true_abs_CIV, recovered_abs_CIV)
+        recoveryFracs_CIV.append(CIVfrac)
+        recoveryFracsErr_CIV.append(CIVfracerr)
+
+        MgIIfrac,MgIIfracerr = calc_recovery(true_abs_MgII , recovered_abs_MgII)
+        recoveryFracs_MgII.append(MgIIfrac)
+        recoveryFracsErr_MgII.append(MgIIfracerr)
+
+        partialfrac,partialfracerr = calc_recovery(true_abs_partialMgII + true_abs_partialCIV, recovered_abs_partialMgII + recovered_abs_partialCIV)
+        recoveryFracs_partial.append(partialfrac)
+        recoveryFracsErr_partial.append(partialfracerr)
 
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
+    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_partial,yerr=recoveryFracsErr_partial,xerr=binsize/2,linestyle=' ',capsize=3,label='partial')
+
     plt.legend()
     plt.ylim(0,1.1)
     plt.title('Identifying correct metal')
     plt.xlabel('logN')
     plt.ylabel('Recovery Fraction')
-    plt.savefig('rf_2.png')
+    plt.savefig('plots/rf_2.pdf')
     plt.close()
 
     return
+
+def calc_recovery(true, recovered):
+    if true == 0:
+        return -999,-999
+    elif recovered == 0:
+        return 0,0
+    else:
+        frac = recovered/true
+        fracerr = frac * np.sqrt((recovered/recovered**2)+(true/true**2))
+
+    return frac, fracerr
 
 def plotIdentifications(test_isabs,preds,test_logNs):
     """
@@ -391,7 +427,7 @@ def plotIdentifications(test_isabs,preds,test_logNs):
     plt.ylim(0,np.max(Total_CIV)*1.3)
 
     plt.ylabel('Number of absorbers')
-    plt.savefig('idents_1.png')
+    plt.savefig('plots/idents_1.pdf')
     plt.close()
 
     #Plot MgII results
@@ -410,7 +446,7 @@ def plotIdentifications(test_isabs,preds,test_logNs):
     plt.ylim(0,np.max(Total_MgII)*1.2)
 
     plt.ylabel('Number of absorbers')
-    plt.savefig('idents_2.png')
+    plt.savefig('plots/idents_2.pdf')
     plt.close()
 
     return
@@ -431,7 +467,6 @@ fluxslices, waveslices, is_abs, logNs = slice_input(fluxdata,wave,Ns_CIV_data, z
 
 nabs = len(np.array(is_abs)[np.array(is_abs)==1])
 nempty = len(np.array(is_abs)[np.array(is_abs)==0])
-
 
 if __name__ == "__main__":
     print("Preprocessing data...")
