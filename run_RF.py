@@ -13,6 +13,9 @@ from multiprocessing import Pool
 from pathlib import Path
 import os
 import sys
+import scipy.constants as const
+
+_c = const.c/1000
 
 def read_spectra(datapath,target_snr):
     #code based on read_NMFPM_spectra.py from Trystyn Berg
@@ -28,13 +31,19 @@ def read_spectra(datapath,target_snr):
 
     Ns_CIV_data, zs_CIV_data = [], []
     Ns_MgII_data, zs_MgII_data = [], []
+
     #loop over files and read fluxes into single numpy array
-
     for specfile in test_specs:
-        #print(specfile)
-        data = np.loadtxt(specfile)
 
+        data = np.loadtxt(specfile)
         wave = data[:,0]
+        
+        #convert to velocity-space, relative to wave[0] which is 3700A
+        vel = [0]
+        for w in range(1,len(wave)):
+            wavestep = (wave[w]-wave[w-1])/wave[w]
+            velstep = wavestep *_c
+            vel.append(vel[w-1] + velstep)
 
         #Apply the noise to the flux
         error = np.random.normal(loc=noise, scale=noise_scale*noise, size=len(wave))
@@ -94,16 +103,17 @@ def read_spectra(datapath,target_snr):
         zs_CIV_data.append(zs_CIV)
         Ns_MgII_data.append(Ns_MgII)
         zs_MgII_data.append(zs_MgII)
+    
+    return fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data 
 
-    return fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data 
-
-def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data ):
+def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data ):
     #Slice spectrum into small regions and add tag for whether there is/isnt an absorber
     
     fluxslices = []
+    velslices = []
     waveslices = []
-    is_abs = []
-    
+
+    is_abs = []    
     logNs = []
     
     nshow = 0
@@ -115,38 +125,56 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
 
         spec = fluxdata[source]
 
-        #indexs to split spectrum into
-        num_idxs = 100
+        #indexs to split spectrum into so that each slice is 1000km/s
+        velstep = vel[1]-vel[0]
+        num_idxs = int(2000./velstep) #100
+        print("Number of channels = " + str(num_idxs))
+        #num_idxs = 100
         idxs = list(np.arange(0,len(spec),num_idxs))
 
         #repeat but with a shift so that any absobers missed due to being split over the edge will be included
         idxs+=list(np.arange(int(num_idxs/2),len(spec),num_idxs))
         
         # determine observed wavelengths of absorbers
-        obs_CIV_1548 = 1548*(zs_CIV_data[source] + 1)
-        obs_CIV_1550 = 1550*(zs_CIV_data[source] + 1)
+        obs_CIV_1548_wave = 1548*(zs_CIV_data[source] + 1)
+        obs_CIV_1550_wave = 1550*(zs_CIV_data[source] + 1)
 
-        obs_MgII_2796 = 2796.4*(zs_MgII_data[source] + 1)
-        obs_MgII_2803 = 2803.5*(zs_MgII_data[source] + 1)
+        obs_MgII_2796_wave = 2796.4*(zs_MgII_data[source] + 1)
+        obs_MgII_2803_wave = 2803.5*(zs_MgII_data[source] + 1)
        
+        #expected velocity of absorbers relative to 3700A (first entry in wave)
+        obs_CIV_1548 = (obs_CIV_1548_wave -3700)/3700 *_c
+        obs_CIV_1550 = (obs_CIV_1550_wave -3700)/3700 *_c
+
+        obs_MgII_2796 = (obs_MgII_2796_wave -3700)/3700 *_c
+        obs_MgII_2803 = (obs_MgII_2803_wave -3700)/3700 *_c
+
  
         for i in range(1,len(idxs)):
             
             if idxs[i-1] > idxs[i]: #skip where the two idx arrays (shifts and non-shifted) are joined
                 continue
-            #print(idxs[i-1], idxs[i])
+
             flux_slice = spec[idxs[i-1]:idxs[i]] 
+            vel_slice = vel[idxs[i-1]:idxs[i]]
             wave_slice = wave[idxs[i-1]:idxs[i]]
 
             #record if there is an absorber or not
-            CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548]
-            CIV1550_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1550]    
+            CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548_wave]
+            CIV1550_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1550_wave]    
 
-            MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796]    
-            MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803]    
+            MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796_wave]    
+            MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803_wave]  
+
+            #CIV1548_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_CIV_1548]
+            #CIV1550_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_CIV_1550]    
+
+            #MgII2796_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_MgII_2796]    
+            #MgII2803_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_MgII_2803]    
 
             #add slice to array of inputs
             fluxslices.append(flux_slice)
+            velslices.append(vel_slice)
             waveslices.append(wave_slice)
 
             #if there is no absorption present, flag it as 0
@@ -189,22 +217,23 @@ def slice_input(fluxdata,wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_d
 
             """
             if (nshow <20) and (True in absorber_present):
-                plt.plot(wave_slice,flux_slice)
+                plt.plot(vel_slice,flux_slice)
                 plt.show()
                 plt.close()
                 nshow += 1
             """
 
-    return fluxslices, waveslices, is_abs, logNs
+    return fluxslices, waveslices, velslices, is_abs, logNs
 
 
-def preprocess(fluxslices, waveslices, is_abs, logNs):
+def preprocess(fluxslices, is_abs, logNs):
     
     ###
     #put preprocessing,e.g. scaling steps here
     ###
 
-    # Train-test split
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Train-test split
+    #sklearn
     idx_split = int(len(fluxslices)/1.5)
 
     train       = fluxslices[:idx_split]
@@ -414,10 +443,6 @@ def plotIdentifications(test_isabs,preds,test_logNs):
         MisIdentified_MgII.append(float(len(preds_bin_MgII[preds_bin_MgII == 1])))
 
     #Plot CIV results
-    #plt.step(logNbins[:-1]+binsize/2,Total_CIV,color='k',label='All CIV')
-    #plt.step(logNbins[:-1]+binsize/2,Correct_CIV,color='g',label='Correctly identified \n as CIV')
-    #plt.step(logNbins[:-1]+binsize/2,np.array(Correct_CIV) + np.array(MisIdentified_CIV),color='r',label='Plus Incorrectly identified \n as MgII')
-
     plt.fill_between(logNbins[:-1]+binsize/2,Total_CIV,np.array(Correct_CIV) + np.array(MisIdentified_CIV),color='k',label='All CIV', step="pre", alpha=0.2)
     plt.fill_between(logNbins[:-1]+binsize/2,Correct_CIV,color='g',label='Correctly identified as CIV', step="pre", alpha=0.4)
     plt.fill_between(logNbins[:-1]+binsize/2,np.array(Correct_CIV) + np.array(MisIdentified_CIV),Correct_CIV,color='r',label='Plus Incorrectly identified as MgII', step="pre", alpha=0.4)
@@ -431,15 +456,9 @@ def plotIdentifications(test_isabs,preds,test_logNs):
     plt.close()
 
     #Plot MgII results
-    #plt.step(logNbins[:-1]+binsize/2,Total_MgII,color='k',label='All MgII')
-    #plt.step(logNbins[:-1]+binsize/2,Correct_MgII,color='g',label='Correctly identified \n as MgII')
-    #plt.step(logNbins[:-1]+binsize/2,np.array(Correct_MgII) + np.array(MisIdentified_MgII),color='r',label='Plus Incorrectly identified \n as CIV')
-
-
     plt.fill_between(logNbins[:-1]+binsize/2,Total_MgII,np.array(Correct_MgII) + np.array(MisIdentified_MgII),color='k',label='All MgII', step="pre", alpha=0.2)
     plt.fill_between(logNbins[:-1]+binsize/2,Correct_MgII,color='g',label='Correctly identified as MgII', step="pre", alpha=0.4)
     plt.fill_between(logNbins[:-1]+binsize/2,np.array(Correct_MgII) + np.array(MisIdentified_MgII),Correct_MgII,color='r',label='Plus Incorrectly identified as CIV', step="pre", alpha=0.4)
-
 
     plt.legend()
     plt.xlabel('logN')
@@ -460,17 +479,17 @@ print("Reading spectra and adding noise...")
 
 #Set the target S/N in the continuum for the spectra
 target_snr = 5.0
-fluxdata, wave, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
+fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
 
 print("Slicing spectra...")
-fluxslices, waveslices, is_abs, logNs = slice_input(fluxdata,wave,Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
+fluxslices, waveslices, velslices, is_abs, logNs = slice_input(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
 
-nabs = len(np.array(is_abs)[np.array(is_abs)==1])
+nabs = len(np.array(is_abs)[np.array(is_abs)>=1])
 nempty = len(np.array(is_abs)[np.array(is_abs)==0])
 
 if __name__ == "__main__":
     print("Preprocessing data...")
-    train, train_isabs, test, test_isabs, train_logNs, test_logNs = preprocess(fluxslices, waveslices, is_abs, logNs)
+    train, train_isabs, test, test_isabs, train_logNs, test_logNs = preprocess(fluxslices, is_abs, logNs)
 
     print("Runnning Random Forest...")
     model = run_RF(train, train_isabs, test, test_isabs)
@@ -481,23 +500,8 @@ preds = model.predict(test)
 
 test_isabs=np.array(test_isabs)
 
-#For absorber/not absorber:
-# Number of True absorber predicted to be absorber
-isAbs_and_predAbs = np.where(( test_isabs >= 1) & (preds >= 1))
-
-# Number of True absorber not predicted to be absorber
-isAbs_and_NotpredAbs = np.where(( test_isabs >= 1) & (preds == 0))
-
-# Number of not absorber predicted to be absorber
-NotAbs_and_predAbs = np.where(( test_isabs == 0) & (preds >= 1))
-
-# Number of not absorber predicted to not be absorber
-NotAbs_and_NotpredAbs = np.where(( test_isabs == 0) & (preds==0))
-
-print(len(isAbs_and_predAbs[0]),len(isAbs_and_NotpredAbs[0]),len(NotAbs_and_predAbs[0]),len(NotAbs_and_NotpredAbs[0]))
-
-print("Creating recovery fraction plot for any kind of absorption...")
-plotRecoveryFraction(test_isabs,preds,test_logNs)
+#print("Creating recovery fraction plot for any kind of absorption...")
+#plotRecoveryFraction(test_isabs,preds,test_logNs)
 
 print("Creating recovery fraction plot for detection of metal types...")
 plotRecoveryFraction_type(test_isabs,preds,test_logNs)
