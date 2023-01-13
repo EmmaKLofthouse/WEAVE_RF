@@ -114,33 +114,35 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
     waveslices = []
 
     is_abs = []    
-    logNs = []
+    absInfo = []    #will contain logNs and redshifts of absorbers
     
     nshow = 0
 
     for source in range(len(fluxdata)):
-
+        
         Ns_CIV = Ns_CIV_data[source]
         Ns_MgII = Ns_MgII_data[source]
+
+        zs_CIV = zs_CIV_data[source]
+        zs_MgII = zs_MgII_data[source]
 
         spec = fluxdata[source]
 
         #indexs to split spectrum into so that each slice is 1000km/s
         velstep = vel[1]-vel[0]
-        num_idxs = int(2000./velstep) #100
-        print("Number of channels = " + str(num_idxs))
-        #num_idxs = 100
+        num_idxs = 100 #int(2000./velstep) 
+        #print("Number of channels = " + str(num_idxs))
         idxs = list(np.arange(0,len(spec),num_idxs))
 
         #repeat but with a shift so that any absobers missed due to being split over the edge will be included
         idxs+=list(np.arange(int(num_idxs/2),len(spec),num_idxs))
         
         # determine observed wavelengths of absorbers
-        obs_CIV_1548_wave = 1548*(zs_CIV_data[source] + 1)
-        obs_CIV_1550_wave = 1550*(zs_CIV_data[source] + 1)
+        obs_CIV_1548_wave = 1548*(zs_CIV + 1)
+        obs_CIV_1550_wave = 1550*(zs_CIV + 1)
 
-        obs_MgII_2796_wave = 2796.4*(zs_MgII_data[source] + 1)
-        obs_MgII_2803_wave = 2803.5*(zs_MgII_data[source] + 1)
+        obs_MgII_2796_wave = 2796.4*(zs_MgII + 1)
+        obs_MgII_2803_wave = 2803.5*(zs_MgII + 1)
        
         #expected velocity of absorbers relative to 3700A (first entry in wave)
         obs_CIV_1548 = (obs_CIV_1548_wave -3700)/3700 *_c
@@ -176,11 +178,12 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
             fluxslices.append(flux_slice)
             velslices.append(vel_slice)
             waveslices.append(wave_slice)
-
+            
+            
             #if there is no absorption present, flag it as 0
             if (True not in CIV1548_present) and (True not in CIV1550_present) and (True not in MgII2796_present) and (True not in MgII2803_present):
                 is_abs.append(0)
-                logNs.append(['-',0])
+                absInfo.append(['-',0, 0, "spec_" + str(source)]) 
                 continue
 
             #If the absorber is cut off, flag it as 3
@@ -189,29 +192,29 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
 
                 if True in CIV1548_present:
                     matchidx = np.where(CIV1548_present)[0][0]       
-                    logNs.append(['partial CIV',Ns_CIV[matchidx]])
+                    absInfo.append(['partial CIV',Ns_CIV[matchidx],zs_CIV[matchidx], "spec_" + str(source)])
                     continue
                 elif True in CIV1550_present:
                     matchidx = np.where(CIV1550_present)[0][0]       
-                    logNs.append(['partial CIV',Ns_CIV[matchidx]])  
+                    absInfo.append(['partial CIV',Ns_CIV[matchidx],zs_CIV[matchidx], "spec_" + str(source)])  
                     continue                     
                 elif True in MgII2796_present:
                     matchidx = np.where(MgII2796_present)[0][0]       
-                    logNs.append(['partial MgII',Ns_MgII[matchidx]])
+                    absInfo.append(['partial MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
                     continue
                 elif True in MgII2803_present:
                     matchidx = np.where(MgII2803_present)[0][0]       
-                    logNs.append(['partial MgII',Ns_MgII[matchidx]])
+                    absInfo.append(['partial MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
                     continue
 
             #if full doublet is present flag it as 1 for CIV and 2 for MgII
             if True in CIV1548_present:
                 matchidx = np.where(CIV1548_present)[0][0]       
-                logNs.append(['CIV',Ns_CIV[matchidx]])
+                absInfo.append(['CIV',Ns_CIV[matchidx],zs_CIV[matchidx], "spec_" + str(source)])
                 is_abs.append(1)
             elif True in MgII2796_present:
                 matchidx = np.where(MgII2796_present)[0][0]       
-                logNs.append(['MgII',Ns_MgII[matchidx]])
+                absInfo.append(['MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
                 is_abs.append(2)
 
 
@@ -223,10 +226,10 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
                 nshow += 1
             """
 
-    return fluxslices, waveslices, velslices, is_abs, logNs
+    return fluxslices, waveslices, velslices, is_abs, absInfo
 
 
-def preprocess(fluxslices, is_abs, logNs):
+def preprocess(fluxslices, velslices, waveslices, is_abs, absInfo):
     
     ###
     #put preprocessing,e.g. scaling steps here
@@ -236,15 +239,20 @@ def preprocess(fluxslices, is_abs, logNs):
     #sklearn
     idx_split = int(len(fluxslices)/1.5)
 
+
     train       = fluxslices[:idx_split]
     train_isabs = is_abs[:idx_split]
-    train_logNs = logNs[:idx_split]
+    train_absInfo = absInfo[:idx_split]
+    train_vel     = velslices[:idx_split]
+    train_wave    = waveslices[:idx_split]
 
     test        = fluxslices[idx_split:]
     test_isabs  = is_abs[idx_split:]
-    test_logNs  = logNs[idx_split:]
+    test_absInfo  = absInfo[idx_split:]
+    test_vel      = velslices[idx_split:]
+    test_wave     = waveslices[idx_split:]
 
-    return train, train_isabs, test, test_isabs, train_logNs, test_logNs
+    return train, train_isabs, test, test_isabs, train_absInfo, test_absInfo, train_vel,test_vel, train_wave, test_wave
  
 def run_RF(train, train_isabs, test, test_isabs):
 
@@ -258,12 +266,13 @@ def run_RF(train, train_isabs, test, test_isabs):
 
     return model
 
-def plotRecoveryFraction(test_isabs,preds,test_logNs):
-
+def plotRecoveryFraction(test_isabs,preds,test_absInfo):
+    
+    
     binsize = 0.3
     logNbins = np.arange(12,15.75,binsize)
-    Nvals = np.array(test_logNs)[:,1]
-    Ntype = np.array(test_logNs)[:,0]
+    Nvals = np.array(test_absInfo)[:,1]
+    Ntype = np.array(test_absInfo)[:,0]
     recoveryFracs_CIV = []
     recoveryFracsErr_CIV = []
     recoveryFracs_MgII = []
@@ -320,12 +329,12 @@ def plotRecoveryFraction(test_isabs,preds,test_logNs):
 
     return
 
-def plotRecoveryFraction_type(test_isabs,preds,test_logNs):
+def plotRecoveryFraction_type(test_isabs,preds,test_absInfo):
 
     binsize = 0.3
     logNbins = np.arange(12,15.75,binsize)
-    Nvals = np.array(test_logNs)[:,1]
-    Ntype = np.array(test_logNs)[:,0]
+    Nvals = np.array(test_absInfo)[:,1]
+    Ntype = np.array(test_absInfo)[:,0]
 
     recoveryFracs_CIV = []
     recoveryFracsErr_CIV = []
@@ -402,7 +411,7 @@ def calc_recovery(true, recovered):
 
     return frac, fracerr
 
-def plotIdentifications(test_isabs,preds,test_logNs):
+def plotIdentifications(test_isabs,preds,test_absInfo):
     """
     Plot histograms of number of true absorbers, number correctly identified and those identified but as the wrong absorber
 
@@ -410,8 +419,8 @@ def plotIdentifications(test_isabs,preds,test_logNs):
 
     binsize = 0.3
     logNbins = np.arange(12,15.75,binsize)
-    Nvals = np.array(test_logNs)[:,1]
-    Ntype = np.array(test_logNs)[:,0]
+    Nvals = np.array(test_absInfo)[:,1]
+    Ntype = np.array(test_absInfo)[:,0]
 
     Total_CIV = []
     Correct_CIV = []
@@ -482,14 +491,14 @@ target_snr = 5.0
 fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
 
 print("Slicing spectra...")
-fluxslices, waveslices, velslices, is_abs, logNs = slice_input(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
+fluxslices, waveslices, velslices, is_abs, absInfo = slice_input(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
 
 nabs = len(np.array(is_abs)[np.array(is_abs)>=1])
 nempty = len(np.array(is_abs)[np.array(is_abs)==0])
 
 if __name__ == "__main__":
     print("Preprocessing data...")
-    train, train_isabs, test, test_isabs, train_logNs, test_logNs = preprocess(fluxslices, is_abs, logNs)
+    train, train_isabs, test, test_isabs, train_absInfo, test_absInfo, train_vel, test_vel, train_wave, test_wave = preprocess(fluxslices, velslices, waveslices, is_abs, absInfo)
 
     print("Runnning Random Forest...")
     model = run_RF(train, train_isabs, test, test_isabs)
@@ -501,18 +510,34 @@ preds = model.predict(test)
 test_isabs=np.array(test_isabs)
 
 #print("Creating recovery fraction plot for any kind of absorption...")
-#plotRecoveryFraction(test_isabs,preds,test_logNs)
+#plotRecoveryFraction(test_isabs,preds,test_absInfo)
 
 print("Creating recovery fraction plot for detection of metal types...")
-plotRecoveryFraction_type(test_isabs,preds,test_logNs)
+plotRecoveryFraction_type(test_isabs,preds,test_absInfo)
 
 print("Creating identification plots...")
-plotIdentifications(test_isabs,preds,test_logNs)
+plotIdentifications(test_isabs,preds,test_absInfo)
 
+#output data
+import pandas as pd
 
+d = {'flux': train,
+     'isabs': train_isabs, 
+     'absInfo': train_absInfo, 
+     'vel': train_vel,
+     'wave': train_wave}
 
+df = pd.DataFrame(data=d)
+df.to_pickle("train_data.pkl")
 
+d = {'flux': test,
+     'isabs': test_isabs, 
+     'absInfo': test_absInfo, 
+     'vel': test_vel,
+     'wave':test_wave}
 
+df = pd.DataFrame(data=d)
+df.to_pickle("test_data.pkl")
 
 
 
