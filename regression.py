@@ -17,9 +17,9 @@ def remove_duplicates():
 
     return
 
-def create_regression_plots(preds_z,civ_z_test,preds_idx,target_index_test):
+def create_regression_plots(preds_z,z_test,preds_idx,target_index_test):
 
-    dz = abs(np.array(preds_z) - np.array(civ_z_test))
+    dz = abs(np.array(preds_z) - np.array(z_test))
 
     p = plt.scatter(target_index_test,preds_idx,marker='.',c=dz)
     plt.colorbar(p,label='dz')
@@ -47,14 +47,14 @@ def create_regression_plots(preds_z,civ_z_test,preds_idx,target_index_test):
     
     return
 
-def create_outlier_plots(preds_z,civ_z_test,preds_idx,target_index_test):
+def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_test):
     #create plots to investigate outliers
-    dz = abs(np.array(preds_z) - np.array(civ_z_test))
+    dz = abs(np.array(preds_z) - np.array(z_test))
 
     outlier_idxs = np.where(dz>0.01)
 
     for oi in outlier_idxs[0]:
-        outlieri = civ_absorbers_test.iloc[oi]
+        outlieri = absorbers_test.iloc[oi]
         pred_index = preds_idx[oi]
         input_index = target_index_test[oi]
         plt.step(np.arange(0,100), outlieri.flux)
@@ -67,7 +67,7 @@ def create_outlier_plots(preds_z,civ_z_test,preds_idx,target_index_test):
     best_idxs = np.where(dz<0.000015)
 
     for oi in best_idxs[0]:
-        besti = civ_absorbers_test.iloc[oi]
+        besti = absorbers_test.iloc[oi]
         pred_index = preds_idx[oi]
         input_index = target_index_test[oi]
         plt.step(np.arange(0,100), besti.flux)
@@ -79,22 +79,18 @@ def create_outlier_plots(preds_z,civ_z_test,preds_idx,target_index_test):
 
     return 
 
-def read_data(trainfile,testfile):
+def read_data(trainfile,testfile, flag):
     train_data = pd.read_pickle(trainfile)  
     test_data  = pd.read_pickle(testfile)  
 
-    civ_absorbers_train = train_data[train_data['isabs'] == 1]
-    civ_absorbers_test = test_data[test_data['isabs'] == 1]
-
-    mgii_absorbers_train = train_data[train_data['isabs'] == 2]
-    mgii_absorbers_test = test_data[test_data['isabs'] == 2]
+    absorbers_train = train_data[train_data['isabs'] == flag]
+    absorbers_test = test_data[test_data['isabs'] == flag]
 
     #combine so that you can preprocess together
-    idx_split = len(civ_absorbers_train)
-    civ_absorbers = pd.concat([civ_absorbers_train,civ_absorbers_test])
-    mgii_absorbers = pd.concat([mgii_absorbers_train,mgii_absorbers_test])
+    idx_split = len(absorbers_train)
+    absorbers = pd.concat([absorbers_train,absorbers_test])
 
-    return civ_absorbers, mgii_absorbers, idx_split
+    return absorbers, idx_split
 
 def run_regressor(X,Y):
     regr = RandomForestRegressor(n_estimators=2000,max_depth=None,
@@ -102,70 +98,110 @@ def run_regressor(X,Y):
                                       max_leaf_nodes=None,bootstrap=True,oob_score=True,
                                       n_jobs=40,random_state=120,verbose=0)
 
-    model = regr.fit(flux_train, target_index_train)
+    model = regr.fit(X,Y)
 
     return model
 
+def find_target_index(absorbers,zarr):
 
+    obswl = 1548.2*(np.array(zarr) + 1)
+
+    target_index = []
+
+    for i in range(len(absorbers)):
+        wi = obswl[i]
+        absi = absorbers.iloc[i]
+        wavei = absi.wave
+        target_index.append(np.where(abs(wavei-wi) == min(abs(wavei - wi)))[0][0])
+
+    return target_index
+
+def index_to_redshift(preds_idx,absorbers):
+
+    preds_wave = []
+
+    for i in range(len(preds_idx)):
+        absi = absorbers.iloc[i]
+        wavei = absi.wave
+        preds_wave.append(wavei[preds_idx[i]])
+
+    preds_z = (np.array(preds_wave)/1548.2) -1
+
+    return preds_z
+
+def extractInfo(absorbers):
+    z_abs, flux = [], []
+    for a in range(len(absorbers)):
+        absi = absorbers.iloc[a]
+        z_abs.append(absorbers.iloc[a].absInfo[2])    
+        flux.append(absi.flux)
+    flux=np.array(flux)
+
+    return z_abs,flux
+
+def preprocess(absorbers,target_index,flux,z_abs,idx_split):
+    #split into train and test
+    absorbers_train = absorbers[:idx_split]
+    absorbers_test = absorbers[idx_split:]
+
+    target_index_train = target_index[:idx_split]
+    target_index_test = target_index[idx_split:]
+
+    flux_train = flux[:idx_split]
+    flux_test = flux[idx_split:]
+
+    z_abs_train = z_abs[:idx_split]
+    z_abs_test = z_abs[idx_split]
+
+    traindict = dict(absorbers=absorbers_train, 
+                     target_index=target_index_train,
+                     flux = flux_train,
+                     z = z_abs_train)
+
+    testdict = dict(absorbers=absorbers_test, 
+                    target_index=target_index_test,
+                    flux = flux_test,
+                    z = z_abs_test)
+
+    return traindict, testdict
+
+
+def get_input_data():
+    # Imagine this is a 5k+ entries dataset...
+    return pd.DataFrame(dict(
+        speed=[1,2,3,4,5], 
+        heat=[50,50,35,24,10],
+        tire_type=[1,1,1,1,2]))
 ################################
 
-civ_absorbers, mgii_absorbers, idx_split = read_data('train_data.pkl','test_data.pkl')
+#for CIV use flag==1, for MgII use flag==2
+flag = 1
+absorbers, idx_split = read_data('train_data.pkl','test_data.pkl', flag)
 
-civ_absInfo = civ_absorbers['absInfo']
+#extract and reformat absorber information
+z_abs, flux = extractInfo(absorbers)
 
-civ_z = []
-for _, val in civ_absInfo.iteritems():
-    civ_z.append(val[2])
-
-#convert to observed wavelength
-obs_CIV_1548_wave = 1548.2*(np.array(civ_z) + 1)
-
-# Identify index in each flux array that is closest to obs_CIV_1548_wave 
+# Identify index in each flux array that is closest to observed wavelength
 # This is the "target" for the machine learning
-target_index = []
+target_index = find_target_index(absorbers,z_abs)
 
-for i in range(len(civ_absorbers)):
-    wi = obs_CIV_1548_wave[i]
-    absi = civ_absorbers.iloc[i]
-    wavei = absi.wave
-    target_index.append(np.where(abs(wavei-wi) == min(abs(wavei - wi)))[0][0])
-
-flux = []
-for _, val in civ_absorbers.flux.iteritems():
-    flux.append(val)
-flux=np.array(flux)
-
-#split into train and test
-flux_train = flux[:idx_split]
-flux_test = flux[idx_split:]
-
-target_index_train = target_index[:idx_split]
-target_index_test = target_index[idx_split:]
-
-civ_z_test = civ_z[idx_split:]
-civ_absorbers_test = civ_absorbers[idx_split:]
+#preprocess and split into train and test samples
+traindict, testdict = preprocess(absorbers,target_index,flux,z_abs,idx_split)
 
 #run random forest regression model
-model = run_regressor(flux_train, target_index_train)
+model = run_regressor(traindict['flux'], traindict['target_index'])
 
 #use model to predict index on test sample
-preds_idx = model.predict(flux_test).astype(int)
+preds_idx = model.predict(testdict['flux']).astype(int)
 
 #convert index back to redshift
-preds_wave = []
-
-for i in range(len(preds_idx)):
-    absi = civ_absorbers_test.iloc[i]
-    wavei = absi.wave
-    preds_wave.append(wavei[preds_idx[i]])
-
-preds_z = (np.array(preds_wave)/1548.2) -1
+preds_z = index_to_redshift(preds_idx,testdict['absorbers'])
 
 #create plots to see results of regression
-create_regression_plots(preds_z,civ_z_test,preds_idx,target_index_test)
+create_regression_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'])
 
 #create plots to investigate outliers
-create_outlier_plots(preds_z,civ_z_test,preds_idx,target_index_test)
+create_outlier_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'],testdict['absorbers'])
 
 
 
