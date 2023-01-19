@@ -28,13 +28,13 @@ def create_regression_plots(preds_z,z_test,preds_idx,target_index_test):
     plt.xlim(0,100)
     plt.xlabel("Input index")
     plt.ylabel("Predicted index")
-    plt.savefig("regress_idx.pdf")
+    plt.savefig("plots/regress_idx.pdf")
     plt.close()
 
     plt.hist(dz,bins=25)
     plt.xlabel('dz')
     plt.ylabel('Frequency')
-    plt.savefig('dz_hist.pdf')
+    plt.savefig('plots/dz_hist.pdf')
     plt.close()
     
     plt.hist(target_index_test,label='input',bins=20,alpha=0.7)
@@ -42,7 +42,7 @@ def create_regression_plots(preds_z,z_test,preds_idx,target_index_test):
     plt.legend()
     plt.xlabel('Index')
     plt.ylabel('Frequency')
-    plt.savefig("idx_hist.pdf")
+    plt.savefig("plots/idx_hist.pdf")
     plt.close()
     
     return
@@ -51,7 +51,7 @@ def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_te
     #create plots to investigate outliers
     dz = abs(np.array(preds_z) - np.array(z_test))
 
-    outlier_idxs = np.where(dz>0.01)
+    outlier_idxs = np.where(dz>0.007)
 
     for oi in outlier_idxs[0]:
         outlieri = absorbers_test.iloc[oi]
@@ -61,9 +61,10 @@ def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_te
         plt.vlines(input_index,np.min(outlieri.flux),np.max(outlieri.flux),color = 'g',linestyle='--',label='input index')
         plt.vlines(pred_index,np.min(outlieri.flux),np.max(outlieri.flux),color='r',linestyle='--',label='predicted')
         plt.legend()
-        plt.savefig("outlier"+str(oi)+".pdf")
+        plt.savefig("plots/outlier"+str(oi)+".pdf")
         plt.close()
-
+    
+    """
     best_idxs = np.where(dz<0.000015)
 
     for oi in best_idxs[0]:
@@ -74,9 +75,9 @@ def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_te
         plt.vlines(input_index,np.min(besti.flux),np.max(besti.flux),color = 'g',linestyle='--',label='input index')
         plt.vlines(pred_index,np.min(besti.flux),np.max(besti.flux),color='r',linestyle='--',label='predicted')
         plt.legend()
-        plt.savefig("best"+str(oi)+".pdf")
+        plt.savefig("plots/best"+str(oi)+".pdf")
         plt.close()
-
+    """
     return 
 
 def read_data(trainfile,testfile, flag):
@@ -102,9 +103,9 @@ def run_regressor(X,Y):
 
     return model
 
-def find_target_index(absorbers,zarr):
+def find_target_index(absorbers,zarr, restwl):
 
-    obswl = 1548.2*(np.array(zarr) + 1)
+    obswl = restwl*(np.array(zarr) + 1)
 
     target_index = []
 
@@ -116,7 +117,7 @@ def find_target_index(absorbers,zarr):
 
     return target_index
 
-def index_to_redshift(preds_idx,absorbers):
+def index_to_redshift(preds_idx,absorbers, restwl):
 
     preds_wave = []
 
@@ -125,7 +126,7 @@ def index_to_redshift(preds_idx,absorbers):
         wavei = absi.wave
         preds_wave.append(wavei[preds_idx[i]])
 
-    preds_z = (np.array(preds_wave)/1548.2) -1
+    preds_z = (np.array(preds_wave)/restwl) -1
 
     return preds_z
 
@@ -151,7 +152,7 @@ def preprocess(absorbers,target_index,flux,z_abs,idx_split):
     flux_test = flux[idx_split:]
 
     z_abs_train = z_abs[:idx_split]
-    z_abs_test = z_abs[idx_split]
+    z_abs_test = z_abs[idx_split:]
 
     traindict = dict(absorbers=absorbers_train, 
                      target_index=target_index_train,
@@ -165,17 +166,16 @@ def preprocess(absorbers,target_index,flux,z_abs,idx_split):
 
     return traindict, testdict
 
-
-def get_input_data():
-    # Imagine this is a 5k+ entries dataset...
-    return pd.DataFrame(dict(
-        speed=[1,2,3,4,5], 
-        heat=[50,50,35,24,10],
-        tire_type=[1,1,1,1,2]))
 ################################
 
 #for CIV use flag==1, for MgII use flag==2
 flag = 1
+
+if flag == 1:
+    restwl = 1548.2
+elif flag == 2:
+    restwl = 2796
+
 absorbers, idx_split = read_data('train_data.pkl','test_data.pkl', flag)
 
 #extract and reformat absorber information
@@ -183,7 +183,7 @@ z_abs, flux = extractInfo(absorbers)
 
 # Identify index in each flux array that is closest to observed wavelength
 # This is the "target" for the machine learning
-target_index = find_target_index(absorbers,z_abs)
+target_index = find_target_index(absorbers,z_abs, restwl)
 
 #preprocess and split into train and test samples
 traindict, testdict = preprocess(absorbers,target_index,flux,z_abs,idx_split)
@@ -195,7 +195,7 @@ model = run_regressor(traindict['flux'], traindict['target_index'])
 preds_idx = model.predict(testdict['flux']).astype(int)
 
 #convert index back to redshift
-preds_z = index_to_redshift(preds_idx,testdict['absorbers'])
+preds_z = index_to_redshift(preds_idx,testdict['absorbers'], restwl)
 
 #create plots to see results of regression
 create_regression_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'])

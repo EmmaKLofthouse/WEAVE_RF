@@ -168,24 +168,48 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
             MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796_wave]    
             MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803_wave]  
 
-            #CIV1548_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_CIV_1548]
-            #CIV1550_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_CIV_1550]    
-
-            #MgII2796_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_MgII_2796]    
-            #MgII2803_present = [(vi > vel_slice[0]) & (vi < vel_slice[-1]) for vi in obs_MgII_2803]    
-
             #add slice to array of inputs
             fluxslices.append(flux_slice)
             velslices.append(vel_slice)
             waveslices.append(wave_slice)
             
-            
             #if there is no absorption present, flag it as 0
-            if (True not in CIV1548_present) and (True not in CIV1550_present) and (True not in MgII2796_present) and (True not in MgII2803_present):
+            allLines_present = CIV1548_present + CIV1550_present + MgII2796_present + MgII2803_present
+            if True not in allLines_present:
                 is_abs.append(0)
                 absInfo.append(['-',0, 0, "spec_" + str(source)]) 
                 continue
 
+            #check if there are multiple of the same line within the window
+            if (sum(CIV1548_present) > 1) |(sum(CIV1550_present) > 1) | (sum(MgII2796_present) > 1) |(sum(MgII2803_present) > 1):
+                is_abs.append(4)
+                absInfo.append(['multiple of same',0, 0, "spec_" + str(source)]) 
+                
+            elif (True in CIV1548_present + CIV1550_present) & (True in MgII2796_present + MgII2803_present):
+                is_abs.append(5)
+                absInfo.append(['MgII+CIV',0, 0, "spec_" + str(source)]) 
+
+            elif ((True in CIV1548_present) | (True in CIV1550_present)): 
+                matchidx = np.where(CIV1548_present)[0]#[0]     
+                if len(matchidx) > 0:
+                    if CIV1550_present[matchidx[0]]:
+                        is_abs.append(1)
+                        absInfo.append(['CIV',Ns_CIV[matchidx[0]],zs_CIV[matchidx[0]], "spec_" + str(source)])
+                        continue
+                is_abs.append(3)
+                absInfo.append(['partial CIV',0,0, "spec_" + str(source)])
+
+            elif ((True in MgII2796_present) | (True in MgII2803_present)): 
+                matchidx = np.where(MgII2796_present)[0]#[0]     
+                if len(matchidx) > 0:
+                    if MgII2803_present[matchidx[0]]:
+                        is_abs.append(2)
+                        absInfo.append(['MgIICIV',Ns_MgII[matchidx[0]],zs_MgII[matchidx[0]], "spec_" + str(source)])
+                        continue
+                is_abs.append(3)
+                absInfo.append(['partial MgII',0,0, "spec_" + str(source)])
+
+            """
             #If the absorber is cut off, flag it as 3
             if ((True in CIV1548_present) != (True in CIV1550_present)) | ((True in MgII2796_present) != (True in MgII2803_present)):
                 is_abs.append(3)
@@ -216,8 +240,7 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
                 matchidx = np.where(MgII2796_present)[0][0]       
                 absInfo.append(['MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
                 is_abs.append(2)
-
-
+            """
             """
             if (nshow <20) and (True in absorber_present):
                 plt.plot(vel_slice,flux_slice)
