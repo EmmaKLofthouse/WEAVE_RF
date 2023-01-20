@@ -115,8 +115,6 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
 
     is_abs = []    
     absInfo = []    #will contain logNs and redshifts of absorbers
-    
-    nshow = 0
 
     for source in range(len(fluxdata)):
         
@@ -184,10 +182,12 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
             if (sum(CIV1548_present) > 1) |(sum(CIV1550_present) > 1) | (sum(MgII2796_present) > 1) |(sum(MgII2803_present) > 1):
                 is_abs.append(4)
                 absInfo.append(['multiple of same',0, 0, "spec_" + str(source)]) 
+                continue
                 
             elif (True in CIV1548_present + CIV1550_present) & (True in MgII2796_present + MgII2803_present):
                 is_abs.append(5)
                 absInfo.append(['MgII+CIV',0, 0, "spec_" + str(source)]) 
+                continue
 
             elif ((True in CIV1548_present) | (True in CIV1550_present)): 
                 matchidx = np.where(CIV1548_present)[0]#[0]     
@@ -198,56 +198,18 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
                         continue
                 is_abs.append(3)
                 absInfo.append(['partial CIV',0,0, "spec_" + str(source)])
+                continue
 
             elif ((True in MgII2796_present) | (True in MgII2803_present)): 
                 matchidx = np.where(MgII2796_present)[0]#[0]     
                 if len(matchidx) > 0:
                     if MgII2803_present[matchidx[0]]:
                         is_abs.append(2)
-                        absInfo.append(['MgIICIV',Ns_MgII[matchidx[0]],zs_MgII[matchidx[0]], "spec_" + str(source)])
+                        absInfo.append(['MgII',Ns_MgII[matchidx[0]],zs_MgII[matchidx[0]], "spec_" + str(source)])
                         continue
                 is_abs.append(3)
                 absInfo.append(['partial MgII',0,0, "spec_" + str(source)])
 
-            """
-            #If the absorber is cut off, flag it as 3
-            if ((True in CIV1548_present) != (True in CIV1550_present)) | ((True in MgII2796_present) != (True in MgII2803_present)):
-                is_abs.append(3)
-
-                if True in CIV1548_present:
-                    matchidx = np.where(CIV1548_present)[0][0]       
-                    absInfo.append(['partial CIV',Ns_CIV[matchidx],zs_CIV[matchidx], "spec_" + str(source)])
-                    continue
-                elif True in CIV1550_present:
-                    matchidx = np.where(CIV1550_present)[0][0]       
-                    absInfo.append(['partial CIV',Ns_CIV[matchidx],zs_CIV[matchidx], "spec_" + str(source)])  
-                    continue                     
-                elif True in MgII2796_present:
-                    matchidx = np.where(MgII2796_present)[0][0]       
-                    absInfo.append(['partial MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
-                    continue
-                elif True in MgII2803_present:
-                    matchidx = np.where(MgII2803_present)[0][0]       
-                    absInfo.append(['partial MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
-                    continue
-
-            #if full doublet is present flag it as 1 for CIV and 2 for MgII
-            if True in CIV1548_present:
-                matchidx = np.where(CIV1548_present)[0][0]       
-                absInfo.append(['CIV',Ns_CIV[matchidx],zs_CIV[matchidx], "spec_" + str(source)])
-                is_abs.append(1)
-            elif True in MgII2796_present:
-                matchidx = np.where(MgII2796_present)[0][0]       
-                absInfo.append(['MgII',Ns_MgII[matchidx],zs_MgII[matchidx], "spec_" + str(source)])
-                is_abs.append(2)
-            """
-            """
-            if (nshow <20) and (True in absorber_present):
-                plt.plot(vel_slice,flux_slice)
-                plt.show()
-                plt.close()
-                nshow += 1
-            """
 
     return fluxslices, waveslices, velslices, is_abs, absInfo
 
