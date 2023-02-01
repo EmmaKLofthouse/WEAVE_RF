@@ -220,13 +220,31 @@ def preprocess(fluxslices, velslices, waveslices, is_abs, absInfo):
     #put preprocessing,e.g. scaling steps here
     ###
 
+    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Train-test split
+    #sklearn
+    idx_split = int(len(fluxslices)/1.5)
+
+
+    trainAll       = fluxslices[:idx_split]
+    trainAll_isabs = is_abs[:idx_split]
+    trainAll_absInfo = absInfo[:idx_split]
+    trainAll_vel     = velslices[:idx_split]
+    trainAll_wave    = waveslices[:idx_split]
+
+    test        = fluxslices[idx_split:]
+    test_isabs  = is_abs[idx_split:]
+    test_absInfo  = absInfo[idx_split:]
+    test_vel      = velslices[idx_split:]
+    test_wave     = waveslices[idx_split:]
+
+
     #balance samples so that there is roughly the same number of noise vs absorbers
 
     #find number of e.g. CIV absorbers
-    nCIV = len(np.array(is_abs)[np.array(is_abs) == 1])
+    nCIV = len(np.array(trainAll_isabs)[np.array(trainAll_isabs) == 1])
 
     #find where the noise samples are
-    idxs_noise = np.where(np.array(is_abs)==0)[0]
+    idxs_noise = np.where(np.array(trainAll_isabs)==0)[0]
 
     #check there are more noise chunks than CIV
     if len(idxs_noise) > nCIV:
@@ -235,28 +253,18 @@ def preprocess(fluxslices, velslices, waveslices, is_abs, absInfo):
         idxs_to_delete= np.random.choice(idxs_noise, len(idxs_noise) - nCIV, replace=False)
 
         #delete indices from flux, vel, wave, is_abs and absInfo
-        is_abs_balanced =np.delete(np.array(is_abs),idxs_to_delete,0)
-        fluxslices_balanced = np.delete(np.array(fluxslices),idxs_to_delete,0)
-        velslices_balanced = np.delete(np.array(velslices),idxs_to_delete,0)
-        waveslices_balanced = np.delete(np.array(waveslices),idxs_to_delete,0)
-        absInfo_balanced = np.delete(np.array(absInfo),idxs_to_delete,0)
+        train_isabs   = list(np.delete(np.array(trainAll_isabs),idxs_to_delete,0))
+        train         = list(np.delete(np.array(trainAll),idxs_to_delete,0))
+        train_vel     = list(np.delete(np.array(trainAll_vel),idxs_to_delete,0))
+        train_wave    = list(np.delete(np.array(trainAll_wave),idxs_to_delete,0))
+        train_absInfo = list(np.delete(np.array(trainAll_absInfo),idxs_to_delete,0))
 
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Train-test split
-    #sklearn
-    idx_split = int(len(fluxslices_balanced)/1.5)
-
-
-    train       = list(fluxslices_balanced[:idx_split])
-    train_isabs = list(is_abs_balanced[:idx_split])
-    train_absInfo = list(absInfo_balanced[:idx_split])
-    train_vel     = list(velslices_balanced[:idx_split])
-    train_wave    = list(waveslices_balanced[:idx_split])
-
-    test        = list(fluxslices_balanced[idx_split:])
-    test_isabs  = list(is_abs_balanced[idx_split:])
-    test_absInfo  = list(absInfo_balanced[idx_split:])
-    test_vel      = list(velslices_balanced[idx_split:])
-    test_wave     = list(waveslices_balanced[idx_split:])
+    else:
+        train_isabs   = trainAll_isabs
+        train         = trainAll
+        train_vel     = trainAll_vel
+        train_wave    = trainAll_wave
+        train_absInfo = trainAll_absInfo
 
     return train, train_isabs, test, test_isabs, train_absInfo, test_absInfo, train_vel,test_vel, train_wave, test_wave
  

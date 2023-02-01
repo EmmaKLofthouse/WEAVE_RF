@@ -98,7 +98,6 @@ def run_regressor(X,Y):
                                       min_samples_split=2,min_samples_leaf=1,max_features="sqrt",
                                       max_leaf_nodes=None,bootstrap=True,oob_score=True,
                                       n_jobs=40,random_state=120,verbose=0)
-
     model = regr.fit(X,Y)
 
     return model
@@ -136,7 +135,9 @@ def extractInfo(absorbers):
         absi = absorbers.iloc[a]
         z_abs.append(absorbers.iloc[a].absInfo[2])    
         flux.append(absi.flux)
+
     flux=np.array(flux)
+    z_abs = np.array(z_abs).astype(float)
 
     return z_abs,flux
 
