@@ -116,8 +116,9 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
     is_abs = []    
     absInfo = []    #will contain logNs and redshifts of absorbers
 
+
     for source in range(len(fluxdata)):
-        
+
         Ns_CIV = Ns_CIV_data[source]
         Ns_MgII = Ns_MgII_data[source]
 
@@ -126,15 +127,6 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
 
         spec = fluxdata[source]
 
-        #indexs to split spectrum into so that each slice is 1000km/s
-        velstep = vel[1]-vel[0]
-        num_idxs = 100 #int(2000./velstep) 
-        #print("Number of channels = " + str(num_idxs))
-        idxs = list(np.arange(0,len(spec),num_idxs))
-
-        #repeat but with a shift so that any absobers missed due to being split over the edge will be included
-        idxs+=list(np.arange(int(num_idxs/2),len(spec),num_idxs))
-        
         # determine observed wavelengths of absorbers
         obs_CIV_1548_wave = 1548*(zs_CIV + 1)
         obs_CIV_1550_wave = 1550*(zs_CIV + 1)
@@ -142,22 +134,16 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
         obs_MgII_2796_wave = 2796.4*(zs_MgII + 1)
         obs_MgII_2803_wave = 2803.5*(zs_MgII + 1)
        
-        #expected velocity of absorbers relative to 3700A (first entry in wave)
-        obs_CIV_1548 = (obs_CIV_1548_wave -3700)/3700 *_c
-        obs_CIV_1550 = (obs_CIV_1550_wave -3700)/3700 *_c
+        startidx = 0 #initialise first chunk
+        num_idxs = 100 #int(2000./velstep)  #size of window
 
-        obs_MgII_2796 = (obs_MgII_2796_wave -3700)/3700 *_c
-        obs_MgII_2803 = (obs_MgII_2803_wave -3700)/3700 *_c
+        while startidx + num_idxs < len(spec):
 
- 
-        for i in range(1,len(idxs)):
+            flux_slice = spec[startidx:startidx+num_idxs] 
+            vel_slice = vel[startidx:startidx+num_idxs]
+            wave_slice = wave[startidx:startidx+num_idxs]
             
-            if idxs[i-1] > idxs[i]: #skip where the two idx arrays (shifts and non-shifted) are joined
-                continue
-
-            flux_slice = spec[idxs[i-1]:idxs[i]] 
-            vel_slice = vel[idxs[i-1]:idxs[i]]
-            wave_slice = wave[idxs[i-1]:idxs[i]]
+            startidx += 1 # number of indices to shift window by
 
             #record if there is an absorber or not
             CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548_wave]
@@ -209,7 +195,7 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
                         continue
                 is_abs.append(3)
                 absInfo.append(['partial MgII',0,0, "spec_" + str(source)])
-
+            
 
     return fluxslices, waveslices, velslices, is_abs, absInfo
 
@@ -280,68 +266,7 @@ def run_RF(train, train_isabs, test, test_isabs):
 
     return model
 
-def plotRecoveryFraction(test_isabs,preds,test_absInfo):
-    
-    
-    binsize = 0.3
-    logNbins = np.arange(12,15.75,binsize)
-    Nvals = np.array(test_absInfo)[:,1]
-    Ntype = np.array(test_absInfo)[:,0]
-    recoveryFracs_CIV = []
-    recoveryFracsErr_CIV = []
-    recoveryFracs_MgII = []
-    recoveryFracsErr_MgII = []
 
-    for n in range(1,len(logNbins)):
-
-        minN = logNbins[n-1]
-        maxN = logNbins[n]
-
-        Nmask = [(float(nv) > minN) & (float(nv) <= maxN) for nv in Nvals]
-
-        CIVmask = [t == 'CIV' for t in Ntype]
-        MgIImask = [t == 'MgII' for t in Ntype]
-
-        preds_bin_CIV = preds[np.array(Nmask) & np.array(CIVmask)]
-        preds_bin_MgII = preds[np.array(Nmask) & np.array(MgIImask)]
-       
-        #number of true absorbers is the length of the array
-        true_abs_CIV = float(len(preds_bin_CIV))
-        recovered_abs_CIV = float(len(preds_bin_CIV[preds_bin_CIV >= 1]))
-        true_abs_MgII = float(len(preds_bin_MgII))
-        recovered_abs_MgII = float(len(preds_bin_MgII[preds_bin_MgII >= 1]))
-
-        
-        if true_abs_CIV == 0:
-            recoveryFracs_CIV.append(-999)
-            recoveryFracsErr_CIV.append(-999)
-        elif recovered_abs_CIV == 0:
-            recoveryFracs_CIV.append(0)
-            recoveryFracsErr_CIV.append(0)
-        else:
-            recoveryFracs_CIV.append(recovered_abs_CIV/true_abs_CIV)
-            recoveryFracsErr_CIV.append(recovered_abs_CIV/true_abs_CIV * np.sqrt((recovered_abs_CIV/recovered_abs_CIV**2)+(true_abs_CIV/true_abs_CIV**2)))
-
-        if true_abs_MgII == 0:
-            recoveryFracs_MgII.append(-999.)
-            recoveryFracsErr_MgII.append(-999)
-        elif recovered_abs_MgII == 0:
-            recoveryFracs_MgII.append(0)
-            recoveryFracsErr_MgII.append(0)
-        else:
-            recoveryFracs_MgII.append(recovered_abs_MgII/true_abs_MgII)
-            recoveryFracsErr_MgII.append(recovered_abs_MgII/true_abs_MgII * np.sqrt((recovered_abs_MgII/recovered_abs_MgII**2)+(true_abs_MgII/true_abs_MgII**2)))
-
-    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
-    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
-    plt.legend()
-    plt.xlabel('logN')
-    plt.ylim(0,1.1)
-    plt.ylabel('Recovery Fraction')
-    plt.savefig('plots/rf_1.pdf')
-    plt.close()
-
-    return
 
 def plotRecoveryFraction_type(test_isabs,preds,test_absInfo):
 
@@ -402,7 +327,7 @@ def plotRecoveryFraction_type(test_isabs,preds,test_absInfo):
 
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_MgII,yerr=recoveryFracsErr_MgII,xerr=binsize/2,linestyle=' ',capsize=3,label='MgII')
     plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_CIV,yerr=recoveryFracsErr_CIV,xerr=binsize/2,linestyle=' ',capsize=3,label='CIV')
-    plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_partial,yerr=recoveryFracsErr_partial,xerr=binsize/2,linestyle=' ',capsize=3,label='partial')
+    #plt.errorbar(logNbins[:-1]+binsize/2,recoveryFracs_partial,yerr=recoveryFracsErr_partial,xerr=binsize/2,linestyle=' ',capsize=3,label='partial')
 
     plt.legend()
     plt.ylim(0,1.1)
@@ -507,9 +432,6 @@ fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read
 print("Slicing spectra...")
 fluxslices, waveslices, velslices, is_abs, absInfo = slice_input(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
 
-nabs = len(np.array(is_abs)[np.array(is_abs)>=1])
-nempty = len(np.array(is_abs)[np.array(is_abs)==0])
-
 if __name__ == "__main__":
     print("Preprocessing data...")
     train, train_isabs, test, test_isabs, train_absInfo, test_absInfo, train_vel, test_vel, train_wave, test_wave = preprocess(fluxslices, velslices, waveslices, is_abs, absInfo)
@@ -522,9 +444,6 @@ print("Predictions...")
 preds = model.predict(test)
 
 test_isabs=np.array(test_isabs)
-
-#print("Creating recovery fraction plot for any kind of absorption...")
-#plotRecoveryFraction(test_isabs,preds,test_absInfo)
 
 print("Creating recovery fraction plot for detection of metal types...")
 plotRecoveryFraction_type(test_isabs,preds,test_absInfo)
