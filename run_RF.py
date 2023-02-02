@@ -106,7 +106,14 @@ def read_spectra(datapath,target_snr):
     
     return fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data 
 
-def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data ):
+def slice_input(data, wave, vel, slide_idx):
+    
+    fluxdata     = data['Flux']
+    Ns_CIV_data  = data['NCIV']
+    zs_CIV_data  = data['zCIV']
+    Ns_MgII_data = data['NMgII']
+    zs_MgII_data = data['zMgII']
+
     #Slice spectrum into small regions and add tag for whether there is/isnt an absorber
     
     fluxslices = []
@@ -115,7 +122,6 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
 
     is_abs = []    
     absInfo = []    #will contain logNs and redshifts of absorbers
-
 
     for source in range(len(fluxdata)):
 
@@ -138,12 +144,12 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
         num_idxs = 100 #int(2000./velstep)  #size of window
 
         while startidx + num_idxs < len(spec):
-
+            
             flux_slice = spec[startidx:startidx+num_idxs] 
             vel_slice = vel[startidx:startidx+num_idxs]
             wave_slice = wave[startidx:startidx+num_idxs]
             
-            startidx += 1 # number of indices to shift window by
+            startidx += slide_idx # number of indices to shift window by
 
             #record if there is an absorber or not
             CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548_wave]
@@ -196,41 +202,52 @@ def slice_input(fluxdata,wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_M
                 is_abs.append(3)
                 absInfo.append(['partial MgII',0,0, "spec_" + str(source)])
             
-
-    return fluxslices, waveslices, velslices, is_abs, absInfo
-
-
-def preprocess(fluxslices, velslices, waveslices, is_abs, absInfo):
     
-    ###
-    #put preprocessing,e.g. scaling steps here
-    ###
+    chunks = dict(fluxslices = fluxslices, 
+                  waveslices = waveslices, 
+                  velslices = velslices, 
+                  is_abs = is_abs, 
+                  absInfo = absInfo)
 
-    # !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!Train-test split
-    #sklearn
-    idx_split = int(len(fluxslices)/1.5)
-
-
-    trainAll       = fluxslices[:idx_split]
-    trainAll_isabs = is_abs[:idx_split]
-    trainAll_absInfo = absInfo[:idx_split]
-    trainAll_vel     = velslices[:idx_split]
-    trainAll_wave    = waveslices[:idx_split]
-
-    test        = fluxslices[idx_split:]
-    test_isabs  = is_abs[idx_split:]
-    test_absInfo  = absInfo[idx_split:]
-    test_vel      = velslices[idx_split:]
-    test_wave     = waveslices[idx_split:]
+    return chunks
 
 
+def split_samples(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data):
+
+    # Change to train-test split form sklear
+    idx_split = int(len(fluxdata)*0.7)
+
+    trainSpec = dict(Flux   = fluxdata[:idx_split],
+                     NCIV  = Ns_CIV_data[:idx_split],
+                     zCIV  = zs_CIV_data[:idx_split],
+                     NMgII = Ns_MgII_data[:idx_split],
+                     zMgII = zs_MgII_data[:idx_split])
+
+    testSpec = dict(Flux   = fluxdata[idx_split:],
+                    NCIV  = Ns_CIV_data[idx_split:],
+                    zCIV  = zs_CIV_data[idx_split:],
+                    NMgII = Ns_MgII_data[idx_split:],
+                    zMgII = zs_MgII_data[idx_split:])
+
+
+    return trainSpec, testSpec
+
+
+
+def preprocess(chunks):
     #balance samples so that there is roughly the same number of noise vs absorbers
 
+    fluxslicesAll = chunks['fluxslices']
+    velslicesAll  = chunks['velslices']
+    waveslicesAll = chunks['waveslices']
+    is_absAll     = chunks['is_abs']
+    absInfoAll    = chunks['absInfo']
+
     #find number of e.g. CIV absorbers
-    nCIV = len(np.array(trainAll_isabs)[np.array(trainAll_isabs) == 1])
+    nCIV = len(np.array(is_absAll)[np.array(is_absAll) == 1])
 
     #find where the noise samples are
-    idxs_noise = np.where(np.array(trainAll_isabs)==0)[0]
+    idxs_noise = np.where(np.array(is_absAll)==0)[0]
 
     #check there are more noise chunks than CIV
     if len(idxs_noise) > nCIV:
@@ -239,20 +256,20 @@ def preprocess(fluxslices, velslices, waveslices, is_abs, absInfo):
         idxs_to_delete= np.random.choice(idxs_noise, len(idxs_noise) - nCIV, replace=False)
 
         #delete indices from flux, vel, wave, is_abs and absInfo
-        train_isabs   = list(np.delete(np.array(trainAll_isabs),idxs_to_delete,0))
-        train         = list(np.delete(np.array(trainAll),idxs_to_delete,0))
-        train_vel     = list(np.delete(np.array(trainAll_vel),idxs_to_delete,0))
-        train_wave    = list(np.delete(np.array(trainAll_wave),idxs_to_delete,0))
-        train_absInfo = list(np.delete(np.array(trainAll_absInfo),idxs_to_delete,0))
+        fluxslices = list(np.delete(np.array(fluxslicesAll),idxs_to_delete,0))
+        velslices  = list(np.delete(np.array(velslicesAll),idxs_to_delete,0))
+        waveslices = list(np.delete(np.array(waveslicesAll),idxs_to_delete,0))
+        is_abs     = list(np.delete(np.array(is_absAll),idxs_to_delete,0))
+        absInfo    = list(np.delete(np.array(absInfoAll),idxs_to_delete,0))
 
     else:
-        train_isabs   = trainAll_isabs
-        train         = trainAll
-        train_vel     = trainAll_vel
-        train_wave    = trainAll_wave
-        train_absInfo = trainAll_absInfo
+        fluxslices = fluxslicesAll
+        velslices  = velslicesAll
+        waveslices = waveslicesAll
+        is_abs     = is_absAll
+        absInfo    = absInfoAll
 
-    return train, train_isabs, test, test_isabs, train_absInfo, test_absInfo, train_vel,test_vel, train_wave, test_wave
+    return fluxslices, velslices, waveslices, is_abs, absInfo
  
 def run_RF(train, train_isabs, test, test_isabs):
 
@@ -418,7 +435,6 @@ def plotIdentifications(test_isabs,preds,test_absInfo):
 
     return
 
-
 ########################################################
 scriptpath = os.path.dirname(os.path.abspath(__file__))
 datapath = scriptpath + "/NMFPM_data/"
@@ -429,12 +445,22 @@ print("Reading spectra and adding noise...")
 target_snr = 5.0
 fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(datapath,target_snr)
 
+print("Split train-test samples...")
+trainSpec, testSpec = split_samples(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
+
 print("Slicing spectra...")
-fluxslices, waveslices, velslices, is_abs, absInfo = slice_input(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
+#split spectra into chunks and assign flag for asborbers
+#use a fine sliding for train sample but larger for test to avoid duplication
+trainChunks = slice_input(trainSpec, wave, vel, 5) #give all the data and a value to shift the window by
+testChunks = slice_input(testSpec, wave, vel, 50)
 
 if __name__ == "__main__":
+        
     print("Preprocessing data...")
-    train, train_isabs, test, test_isabs, train_absInfo, test_absInfo, train_vel, test_vel, train_wave, test_wave = preprocess(fluxslices, velslices, waveslices, is_abs, absInfo)
+    # e.g. balance samples
+    train, train_vel, train_wave, train_isabs, train_absInfo = preprocess(trainChunks)
+    test, test_vel, test_wave = testChunks['fluxslices'], testChunks['velslices'], testChunks['waveslices'] 
+    test_isabs, test_absInfo = testChunks['is_abs'], testChunks['absInfo']
 
     print("Runnning Random Forest...")
     model = run_RF(train, train_isabs, test, test_isabs)
@@ -442,8 +468,6 @@ if __name__ == "__main__":
 print("Predictions...")
 #classify whether test sample are absorber or not
 preds = model.predict(test)
-
-test_isabs=np.array(test_isabs)
 
 print("Creating recovery fraction plot for detection of metal types...")
 plotRecoveryFraction_type(test_isabs,preds,test_absInfo)
@@ -471,6 +495,4 @@ d = {'flux': test,
 
 df = pd.DataFrame(data=d)
 df.to_pickle("test_data.pkl")
-
-
 
