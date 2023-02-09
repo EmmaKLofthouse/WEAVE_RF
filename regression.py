@@ -85,13 +85,15 @@ def read_data(trainfile,testfile, flag):
     test_data  = pd.read_pickle(testfile)  
 
     absorbers_train = train_data[train_data['isabs'] == flag]
+
     absorbers_test = test_data[test_data['isabs'] == flag]
+	original_id_test = np.where(test_data['isabs'] == flag)[0]
 
     #combine so that you can preprocess together
     idx_split = len(absorbers_train)
     absorbers = pd.concat([absorbers_train,absorbers_test])
 
-    return absorbers, idx_split
+    return absorbers, idx_split,original_id_test,original_id_test
 
 def run_regressor(X,Y):
     regr = RandomForestRegressor(n_estimators=2000,max_depth=None,
@@ -177,7 +179,7 @@ if flag == 1:
 elif flag == 2:
     restwl = 2796
 
-absorbers, idx_split = read_data('train_data.pkl','test_data.pkl', flag)
+absorbers, idx_split,original_id_test = read_data('train_data.pkl','testFine_data.pkl', flag)
 
 #extract and reformat absorber information
 z_abs, flux = extractInfo(absorbers)
@@ -194,6 +196,33 @@ model = run_regressor(traindict['flux'], traindict['target_index'])
 
 #use model to predict index on test sample
 preds_idx = model.predict(testdict['flux']).astype(int)
+
+def remove_duplicates(testdict,preds_idx,original_id_test):
+	test_absorbers = testdict['absorbers']
+	test_wave = test_absorbers['wave']
+	test_specNum = []
+	for _,i in enumerate(test_absorbers['absInfo']):
+		test_specNum.append(i[3])
+	
+	for s in np.unique(test_specNum):
+		thisspec = np.where(np.array(test_specNum)==s)
+		orig_ids_thisspec =  original_id_test[thisspec]
+
+		#find breaks
+		breaks = [0]
+		for o in range(1,len(orig_ids_thisspec)):
+			if orig_ids_thisspec[o] > orig_ids_thisspec[o-1] + 5:
+				breaks.append(o)
+
+		bestfits = []
+		#find most central fit
+		for b in range(1,len(breaks)):
+			distFromCentre = abs(preds_idx[breaks[b-1]:breaks[b]] -50)
+			bestfit = np.where(distFromCentre == np.min(distFromCentre))[0][0]
+			bestfits.append(thisspec[0][breaks[b-1] + bestfit])
+			
+
+	
 
 #convert index back to redshift
 preds_z = index_to_redshift(preds_idx,testdict['absorbers'], restwl)
