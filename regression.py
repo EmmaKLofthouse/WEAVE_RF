@@ -7,19 +7,13 @@ from sklearn.ensemble import RandomForestRegressor
 import numpy as np
 import matplotlib.pyplot as plt
 
-def remove_duplicates():
-    """
-    remove absorbers which are in the same spectrum, at roughly the same redshift
-    !!! Need to do the regression first to identify redshift as this won't be 
-    known a priori in the real data set
-    """
-    #loop over each entry, check if it's been seen before and if not add to output
-
-    return
-
 def create_regression_plots(preds_z,z_test,preds_idx,target_index_test):
 
     dz = abs(np.array(preds_z) - np.array(z_test))
+    #print(dz[0:50])
+    #print(target_index_test[0:50])
+    dz[np.array(target_index_test)==0]=0
+    #print(dz[0:50])
 
     p = plt.scatter(target_index_test,preds_idx,marker='.',c=dz)
     plt.colorbar(p,label='dz')
@@ -81,21 +75,65 @@ def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_te
     return 
 
 def read_data(trainfile,testfile, flag):
-    train_data = pd.read_pickle(trainfile)  
-    test_data  = pd.read_pickle(testfile)  
+    """
+    Read in the data files of training and test data from run_RF.py
 
+    Parameters
+    ----------
+    trainfile: str
+        Name of file containing training data used for classifier
+    testfile: str
+        Name of file containing test data used for classifier
+    flag: int   
+        Flag for the type of absorber, 1: CIV, 2:MgII
+
+    Returns
+    -------
+    absorbers: 
+        absorber information for all systems with the specified flag
+    idx_split: int
+        index at which the split between training and test data occurs
+    original_id_test: list
+        list of indices from the original dataframe
+    """
+
+    train_data = pd.read_pickle(trainfile)  
+    
+    # Include everything but give things which don't match the flag a target 
+    # index of 0.
+    #absorbers_train = train_data
+    # Or just train on CIV?
     absorbers_train = train_data[train_data['isabs'] == flag]
 
-    absorbers_test = test_data[test_data['isabs'] == flag]
-	original_id_test = np.where(test_data['isabs'] == flag)[0]
+    test_data  = pd.read_pickle(testfile)  
+    
+    # If running on what we know are absorbers use test_data['isabs'] == flag.
+    # If running on things that have been identified by classifier as absorbers
+    # use test_data['preds'] == flag
+    absorbers_test = test_data[test_data['preds'] == flag]
+    original_id_test = np.where(test_data['preds'] == flag)[0]
 
     #combine so that you can preprocess together
     idx_split = len(absorbers_train)
     absorbers = pd.concat([absorbers_train,absorbers_test])
 
-    return absorbers, idx_split,original_id_test,original_id_test
+    return absorbers, idx_split, original_id_test
 
 def run_regressor(X,Y):
+    """
+    Create the Random Forest regression model and fit the given data
+
+    Parameters
+    ----------
+    X: 
+        
+    Y:
+
+    Returns
+    -------
+    model:
+        Random forest model fit to the data
+    """
     regr = RandomForestRegressor(n_estimators=2000,max_depth=None,
                                       min_samples_split=2,min_samples_leaf=1,max_features="sqrt",
                                       max_leaf_nodes=None,bootstrap=True,oob_score=True,
@@ -104,18 +142,21 @@ def run_regressor(X,Y):
 
     return model
 
-def find_target_index(absorbers,zarr, restwl):
+def find_target_index(absorbers,zarr, restwl, flag):
 
     obswl = restwl*(np.array(zarr) + 1)
 
     target_index = []
 
     for i in range(len(absorbers)):
+        #if (absorbers.iloc[i])['isabs'] != flag:
+        #    target_index.append(0)
+        #else:
         wi = obswl[i]
         absi = absorbers.iloc[i]
         wavei = absi.wave
         target_index.append(np.where(abs(wavei-wi) == min(abs(wavei - wi)))[0][0])
-
+        
     return target_index
 
 def index_to_redshift(preds_idx,absorbers, restwl):
@@ -169,6 +210,63 @@ def preprocess(absorbers,target_index,flux,z_abs,idx_split):
 
     return traindict, testdict
 
+def remove_duplicates(testdict,preds_idx,original_id_test):
+
+    test_absorbers = testdict['absorbers']    
+    test_specNum = []
+    for _,i in enumerate(test_absorbers['absInfo']):
+        test_specNum.append(i[3])
+
+    bestfits = []
+
+    for s in np.unique(test_specNum):
+        thisspec = np.where(np.array(test_specNum)==s)
+        orig_ids_thisspec =  original_id_test[thisspec]
+
+        #find breaks
+        breaks = [0]
+        for o in range(1,len(orig_ids_thisspec)):
+            if orig_ids_thisspec[o] > orig_ids_thisspec[o-1] + 5:
+                breaks.append(o)
+
+        #find most central fit
+        for b in range(1,len(breaks)):
+            distFromCentre = preds_idx[breaks[b-1]:breaks[b]] -50
+
+            # Skip systems which are only identified once or twice as they are more likely to be erroneous
+            if len(distFromCentre) >= 3: 
+                bestfit = np.where(abs(distFromCentre) == np.min(abs(distFromCentre)))[0][0]
+                #print(distFromCentre[bestfit])
+                #if abs(distFromCentre[bestfit])>10:
+                #    print(s,distFromCentre)
+                bestfits.append(orig_ids_thisspec[breaks[b-1] + bestfit])
+
+    chosen_absorbers_list = []
+    chosen_preds_idx= []
+    chosen_target_idx = []
+    chosen_z = []
+
+    target_idx = testdict['target_index']
+    test_z = testdict['z']
+
+    for i in range(len(original_id_test)):
+        if original_id_test[i] in bestfits:
+            dict1 = {}
+            dict1.update(test_absorbers.iloc[i])
+            chosen_absorbers_list.append(dict1)
+            chosen_preds_idx.append(preds_idx[i])
+            chosen_target_idx.append(target_idx[i])
+            chosen_z.append(test_z[i])
+
+    chosen_absorbers = pd.DataFrame(chosen_absorbers_list)
+    chosen_preds_idx = np.array(chosen_preds_idx)
+    chosen_target_idx = np.array(chosen_target_idx)
+    chosen_z = np.array(chosen_z) 
+
+    return chosen_absorbers, chosen_preds_idx,chosen_target_idx,chosen_z
+
+
+
 ################################
 
 #for CIV use flag==1, for MgII use flag==2
@@ -179,61 +277,45 @@ if flag == 1:
 elif flag == 2:
     restwl = 2796
 
+print("Reading data...")
 absorbers, idx_split,original_id_test = read_data('train_data.pkl','testFine_data.pkl', flag)
 
+print("Extracting absorber information...")
 #extract and reformat absorber information
 z_abs, flux = extractInfo(absorbers)
 
+print("Finding target index...")
 # Identify index in each flux array that is closest to observed wavelength
 # This is the "target" for the machine learning
-target_index = find_target_index(absorbers,z_abs, restwl)
+target_index = find_target_index(absorbers,z_abs, restwl, flag)
 
+print("Preprocessing data...")
 #preprocess and split into train and test samples
 traindict, testdict = preprocess(absorbers,target_index,flux,z_abs,idx_split)
 
+print("Creating and training model...")
 #run random forest regression model
 model = run_regressor(traindict['flux'], traindict['target_index'])
 
+print("Making predictions...")
 #use model to predict index on test sample
 preds_idx = model.predict(testdict['flux']).astype(int)
 
-def remove_duplicates(testdict,preds_idx,original_id_test):
-	test_absorbers = testdict['absorbers']
-	test_wave = test_absorbers['wave']
-	test_specNum = []
-	for _,i in enumerate(test_absorbers['absInfo']):
-		test_specNum.append(i[3])
-	
-	for s in np.unique(test_specNum):
-		thisspec = np.where(np.array(test_specNum)==s)
-		orig_ids_thisspec =  original_id_test[thisspec]
-
-		#find breaks
-		breaks = [0]
-		for o in range(1,len(orig_ids_thisspec)):
-			if orig_ids_thisspec[o] > orig_ids_thisspec[o-1] + 5:
-				breaks.append(o)
-
-		bestfits = []
-		#find most central fit
-		for b in range(1,len(breaks)):
-			distFromCentre = abs(preds_idx[breaks[b-1]:breaks[b]] -50)
-			bestfit = np.where(distFromCentre == np.min(distFromCentre))[0][0]
-			bestfits.append(thisspec[0][breaks[b-1] + bestfit])
-			
-
-	
+print("Removing duplicates...")
+chosen_absorbers, chosen_preds_idx, chosen_target_idx, chosen_z = remove_duplicates(testdict,preds_idx,original_id_test)
 
 #convert index back to redshift
 preds_z = index_to_redshift(preds_idx,testdict['absorbers'], restwl)
+chosen_preds_z = index_to_redshift(chosen_preds_idx,chosen_absorbers, restwl)
 
 #create plots to see results of regression
-create_regression_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'])
+#create_regression_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'])
+create_regression_plots(chosen_preds_z,chosen_z,chosen_preds_idx,chosen_target_idx)
+
 
 #create plots to investigate outliers
-create_outlier_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'],testdict['absorbers'])
-
-
+#create_outlier_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'],testdict['absorbers'])
+#create_outlier_plots(preds_z,chosen_z,chosen_preds_idx,chosen_target_idx,chosen_absorbers)
 
 
 

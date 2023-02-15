@@ -107,9 +107,9 @@ def read_spectra(datapath,target_snr):
     return fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data 
 
 def strided_app(a, L, S ):  # Window len = L, Stride len/stepsize = S
-	result = [np.lib.stride_tricks.sliding_window_view(i, window_shape = L)[::S] for i in a]
-	result_r = np.array(result).reshape(np.shape(result)[0]*np.shape(result)[1],np.shape(result)[2])
-	return result_r
+    result = [np.lib.stride_tricks.sliding_window_view(i, window_shape = L)[::S] for i in a]
+    result_r = np.array(result).reshape(np.shape(result)[0]*np.shape(result)[1],np.shape(result)[2])
+    return result_r
 
 
 def slice_input(data, wave, vel, slide_idx):
@@ -280,14 +280,14 @@ def preprocess(chunks):
 
     return fluxslices, velslices, waveslices, is_abs, absInfo
  
-def run_RF(train, train_isabs, test, test_isabs):
+def run_RF(train, train_isabs):
 
-	print("Build the forest...")
+    print("Build the forest...")
     Forest=RandomForestClassifier(n_estimators=1000,criterion='gini',max_depth=None,
                                   min_samples_split=10,min_samples_leaf=1,max_features=40,
                                   max_leaf_nodes=None,bootstrap=True,oob_score=True,
                                   n_jobs=40,random_state=120,verbose=0,class_weight='balanced')
-	print("Fit training sample...")
+    print("Fit training sample...")
     model=Forest.fit(train,train_isabs)
 
     return model
@@ -445,8 +445,8 @@ def plotIdentifications(test_isabs,preds,test_absInfo):
     return
 
 ########################################################
-#scriptpath = os.path.dirname(os.path.abspath(__file__))
-datapath = "../data/NMFPM_data/" #scriptpath + "/NMFPM_data/"
+scriptpath = os.path.dirname(os.path.abspath(__file__))
+datapath = scriptpath + "/NMFPM_data/"
 print(datapath)
 print("Reading spectra and adding noise...")
 
@@ -481,10 +481,12 @@ if __name__ == "__main__":
 print("Predictions...")
 #classify whether test sample are absorber or not
 preds = model.predict(test)
+predsFine = model.predict(testFine)
+
 #if you want confidence, return probability of classes
-preds_probability = model.predict_proba(test)
+#preds_probability = model.predict_proba(test)
 #Return the mean accuracy on the given test data and labels
-score = model.score(test,test_isabs)
+#score = model.score(test,test_isabs)
 
 print("Creating recovery fraction plot for detection of metal types...")
 plotRecoveryFraction_type(test_isabs,preds,test_absInfo)
@@ -508,16 +510,8 @@ d = {'flux': test,
      'isabs': test_isabs, 
      'absInfo': test_absInfo, 
      'vel': test_vel,
-     'wave':test_wave}
-
-df = pd.DataFrame(data=d)
-df.to_pickle("test_data.pkl")
-
-d = {'flux': test,
-     'isabs': test_isabs, 
-     'absInfo': test_absInfo, 
-     'vel': test_vel,
-     'wave':test_wave}
+     'wave':test_wave,   
+     'preds':preds}
 
 df = pd.DataFrame(data=d)
 df.to_pickle("test_data.pkl")
@@ -526,7 +520,8 @@ d = {'flux': testFine,
      'isabs': testFine_isabs, 
      'absInfo': testFine_absInfo, 
      'vel': testFine_vel,
-     'wave':testFine_wave}
+     'wave':testFine_wave,
+     'preds':predsFine}
 
 df = pd.DataFrame(data=d)
 df.to_pickle("testFine_data.pkl")
