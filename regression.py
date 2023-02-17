@@ -9,14 +9,13 @@ import matplotlib.pyplot as plt
 
 def create_regression_plots(preds_z,z_test,preds_idx,target_index_test):
 
-    dz = abs(np.array(preds_z) - np.array(z_test))
-    #print(dz[0:50])
-    #print(target_index_test[0:50])
-    dz[np.array(target_index_test)==0]=0
-    #print(dz[0:50])
+    #dz = abs(np.array(preds_z) - np.array(z_test))
+    didx = abs(preds_idx - target_index_test)
+    dz = didx *18/3e5
 
     p = plt.scatter(target_index_test,preds_idx,marker='.',c=dz)
     plt.colorbar(p,label='dz')
+    plt.clim(0, 0.0005)
     plt.plot([0,100],[0,100],color='grey',linestyle='--')
     plt.ylim(0,100)
     plt.xlim(0,100)
@@ -110,8 +109,9 @@ def read_data(trainfile,testfile, flag):
     # If running on what we know are absorbers use test_data['isabs'] == flag.
     # If running on things that have been identified by classifier as absorbers
     # use test_data['preds'] == flag
-    absorbers_test = test_data[test_data['preds'] == flag]
-    original_id_test = np.where(test_data['preds'] == flag)[0]
+    preds_prob_flag = np.array([i[flag] for i in test_data['preds_probability']])
+    absorbers_test = test_data[preds_prob_flag>0.5]
+    original_id_test = np.where(preds_prob_flag>0.5)[0]
 
     #combine so that you can preprocess together
     idx_split = len(absorbers_train)
@@ -125,9 +125,8 @@ def run_regressor(X,Y):
 
     Parameters
     ----------
-    X: 
-        
-    Y:
+    X        
+    Y
 
     Returns
     -------
