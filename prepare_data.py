@@ -30,11 +30,11 @@ _c = const.c/1000
 
 np.seterr(invalid='ignore')
 
-def read_spectra(training_list, test_list):
+def read_spectra(filelist):
 
     # Get all files to be used for training
     specfiles = []
-    with open(training_list, 'r') as f:
+    with open(filelist, 'r') as f:
         for line in f:
             specfiles.append(line.strip())
 
@@ -98,8 +98,19 @@ def read_spectra(training_list, test_list):
             zs_CIV_data.append(list(zCIV))
             Ns_MgII_data.append(list(NMgII))
             zs_MgII_data.append(list(zMgII))
-        
-    return fluxdata, out_wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data 
+
+
+
+            specDict = dict(Flux  = fluxdata,
+                             NCIV  = Ns_CIV_data,
+                             zCIV  = zs_CIV_data,
+                             NMgII = Ns_MgII_data,
+                             zMgII = zs_MgII_data,
+                             wave  = list(wave),
+                             vel   =list(vel))
+
+
+    return specDict
 
 def extract_abs_properties(ind, sight, Ncat, wave):
     """ 
@@ -307,26 +318,6 @@ def slice_input(data, wave, vel, slide_idx):
 
     return chunks
 
-def split_samples(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data):
-
-    # Change to train-test split from sklearn
-    idx_split = int(len(fluxdata)*0.7)
-
-    trainSpec = dict(Flux  = fluxdata[:idx_split],
-                     NCIV  = Ns_CIV_data[:idx_split],
-                     zCIV  = zs_CIV_data[:idx_split],
-                     NMgII = Ns_MgII_data[:idx_split],
-                     zMgII = zs_MgII_data[:idx_split])
-
-    testSpec = dict(Flux  = fluxdata[idx_split:],
-                    NCIV  = Ns_CIV_data[idx_split:],
-                    zCIV  = zs_CIV_data[idx_split:],
-                    NMgII = Ns_MgII_data[idx_split:],
-                    zMgII = zs_MgII_data[idx_split:])
-
-
-    return trainSpec, testSpec
-    
 
 ########################################################
 print("Reading spectra and adding noise...")
@@ -334,10 +325,9 @@ print("Reading spectra and adding noise...")
 training_list = '/data/tberg/WEAVE/Working/training_mocks.lst'
 test_list = '/data/tberg/WEAVE/Working/analysis_mocks.lst'
 
-fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(training_list, test_list)
-
-print("Split train-test samples...")
-trainSpec, testSpec = split_samples(fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data)
+#fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(training_list, test_list)
+trainSpec = read_spectra(training_list)
+testSpec = read_spectra(test_list)
 
 # Save spectra with noise
 import json
