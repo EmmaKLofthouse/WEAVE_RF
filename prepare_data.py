@@ -45,7 +45,7 @@ def read_spectra(filelist):
     Ns_MgII_data, zs_MgII_data  = [], []
 
     # Loop over hdf5 files
-    for hdf5file in specfiles[:2]:
+    for hdf5file in specfiles:
 
         print("Working with file: %s"%hdf5file)
         
@@ -59,13 +59,6 @@ def read_spectra(filelist):
         #Spectra
         wave = np.array(data['wave'])
         fluxes = np.array(data['flux']) #Of shape nsight x npix
-
-        #convert to velocity-space, relative to wave[0] which is 3700A
-        vel = [0]
-        for w in range(1,len(wave)):
-            wavestep = (wave[w]-wave[w-1])/wave[w]
-            velstep = wavestep *_c
-            vel.append(vel[w-1] + velstep)
             
         #Column densities
         Ncat = data['absorbers'] #Group of nsight numpy recarrays
@@ -99,16 +92,20 @@ def read_spectra(filelist):
             Ns_MgII_data.append(list(NMgII))
             zs_MgII_data.append(list(zMgII))
 
-
-
-            specDict = dict(Flux  = fluxdata,
-                             NCIV  = Ns_CIV_data,
-                             zCIV  = zs_CIV_data,
-                             NMgII = Ns_MgII_data,
-                             zMgII = zs_MgII_data,
-                             wave  = list(wave),
-                             vel   =list(vel))
-
+    #convert to velocity-space, relative to wave[0] which is 3700A
+    vel = [0]
+    for w in range(1,len(out_wave)):
+        wavestep = (out_wave[w]-out_wave[w-1])/out_wave[w]
+        velstep = wavestep *_c
+        vel.append(vel[w-1] + velstep)
+    
+    specDict = dict(Flux  = fluxdata,
+                    NCIV  = Ns_CIV_data,
+                    zCIV  = zs_CIV_data,
+                    NMgII = Ns_MgII_data,
+                    zMgII = zs_MgII_data,
+                    wave  = list(out_wave),
+                    vel   = list(vel))
 
     return specDict
 
@@ -188,7 +185,7 @@ def add_noise(wave, flux, Rqso, zqso):
 
 def plot_check(zMgII, zMgII_clean, zCIV, zCIV_clean, NMgII, NCIV, out_wave, out_flux, out_error, in_wave, in_flux):
     """
-    Test code to plot and make sure it works
+    analysis code to plot and make sure it works
     """
     
     import matplotlib.pyplot as plt
@@ -214,152 +211,23 @@ def plot_check(zMgII, zMgII_clean, zCIV, zCIV_clean, NMgII, NCIV, out_wave, out_
     
     return
 
-def slice_input(data, wave, vel, slide_idx):
-    
-    fluxdata     = data['Flux']
-    Ns_CIV_data  = data['NCIV']
-    zs_CIV_data  = data['zCIV']
-    Ns_MgII_data = data['NMgII']
-    zs_MgII_data = data['zMgII']
-
-    # Slice spectrum into small regions and add tag for whether there is/isnt an absorber
-    fluxslices = []
-    velslices = []
-    waveslices = []
-
-    is_abs = []    
-    absInfo = []    # will contain logNs and redshifts of absorbers
-
-    for source in range(len(fluxdata)):
-
-        Ns_CIV = Ns_CIV_data[source]
-        Ns_MgII = Ns_MgII_data[source]
-
-        zs_CIV = zs_CIV_data[source]
-        zs_MgII = zs_MgII_data[source]
-
-        spec = fluxdata[source]
-
-        # Determine observed wavelengths of absorbers
-        obs_CIV_1548_wave = 1548*(zs_CIV + 1)
-        obs_CIV_1550_wave = 1550*(zs_CIV + 1)
-
-        obs_MgII_2796_wave = 2796.4*(zs_MgII + 1)
-        obs_MgII_2803_wave = 2803.5*(zs_MgII + 1)
-       
-        startidx = 0 #initialise first chunk
-        num_idxs = 100 #int(2000./velstep)  #size of window
-
-        while startidx + num_idxs < len(spec):
-            
-            flux_slice = spec[startidx:startidx+num_idxs] 
-            vel_slice = vel[startidx:startidx+num_idxs]
-            wave_slice = wave[startidx:startidx+num_idxs]
-            
-            startidx += slide_idx # number of indices to shift window by
-
-            # Record if there is an absorber or not
-            CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548_wave]
-            CIV1550_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1550_wave]    
-
-            MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796_wave]    
-            MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803_wave]  
-
-            # Add slice to array of inputs
-            fluxslices.append(list(flux_slice))
-            velslices.append(list(vel_slice))
-            waveslices.append(list(wave_slice))
-            
-            # If there is no absorption present, flag it as 0
-            allLines_present = CIV1548_present + CIV1550_present + MgII2796_present + MgII2803_present
-            if True not in allLines_present:
-                is_abs.append(0)
-                absInfo.append(['-',0, 0, "spec_" + str(source)]) 
-                continue
-
-            # Check if there are multiple of the same line within the window
-            if (sum(CIV1548_present) > 1) |(sum(CIV1550_present) > 1) | (sum(MgII2796_present) > 1) |(sum(MgII2803_present) > 1):
-                is_abs.append(5)
-                absInfo.append(['multiple of same',0, 0, "spec_" + str(source)]) 
-                continue
-                
-            elif (True in CIV1548_present + CIV1550_present) & (True in MgII2796_present + MgII2803_present):
-                is_abs.append(4)
-                absInfo.append(['MgII+CIV',0, 0, "spec_" + str(source)]) 
-                continue
-
-            elif ((True in CIV1548_present) | (True in CIV1550_present)): 
-                matchidx = np.where(CIV1548_present)[0] 
-                if len(matchidx) > 0:
-                    if CIV1550_present[matchidx[0]]:
-                        is_abs.append(1)
-                        absInfo.append(['CIV',Ns_CIV[matchidx[0]],zs_CIV[matchidx[0]], "spec_" + str(source)])
-                        continue
-                is_abs.append(3)
-                absInfo.append(['partial CIV',0,0, "spec_" + str(source)])
-                continue
-
-            elif ((True in MgII2796_present) | (True in MgII2803_present)): 
-                matchidx = np.where(MgII2796_present)[0]    
-                if len(matchidx) > 0:
-                    if MgII2803_present[matchidx[0]]:
-                        is_abs.append(2)
-                        absInfo.append(['MgII',Ns_MgII[matchidx[0]],zs_MgII[matchidx[0]], "spec_" + str(source)])
-                        continue
-                is_abs.append(3)
-                absInfo.append(['partial MgII',0,0, "spec_" + str(source)])
-            
-
-    chunks = dict(fluxslices = fluxslices,
-                  waveslices = waveslices, 
-                  velslices = velslices, 
-                  is_abs = is_abs, 
-                  absInfo = absInfo)
-
-    return chunks
-
-
 ########################################################
 print("Reading spectra and adding noise...")
 
 training_list = '/data/tberg/WEAVE/Working/training_mocks.lst'
-test_list = '/data/tberg/WEAVE/Working/analysis_mocks.lst'
+#training_list = 'training_mocks_short10.lst'
+analysis_list = '/data/tberg/WEAVE/Working/analysis_mocks.lst'
 
-#fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(training_list, test_list)
+#fluxdata, wave, vel, Ns_CIV_data, zs_CIV_data, Ns_MgII_data, zs_MgII_data = read_spectra(training_list, analysis_list)
 trainSpec = read_spectra(training_list)
-testSpec = read_spectra(test_list)
+#analysisSpec = read_spectra(analysis_list)
 
 # Save spectra with noise
 import json
 with open("trainSpec.json", "w") as write_file:
     json.dump(trainSpec, write_file, indent=4)
-with open("testSpec.json", "w") as write_file:
-    json.dump(testSpec, write_file, indent=4)
+#with open("analysisSpec.json", "w") as write_file:
+#    json.dump(analysisSpec, write_file, indent=4)
 
-"""
-print("Slicing spectra...")
-# Split spectra into chunks and assign flag for absorbers
-# Use a fine sliding for train sample but larger for test to avoid duplication
-trainChunks = slice_input(trainSpec, wave, vel, 5) # Give all the data and a 
-                                                # value to shift the window by
-testChunks = slice_input(testSpec, wave, vel, 50)
-testFineChunks = slice_input(testSpec, wave, vel, 5)    
 
-import json
-with open("trainChunks.json", "w") as write_file:
-    json.dump(trainChunks, write_file, indent=4)
-with open("testFineChunks.json", "w") as write_file:
-    json.dump(testFineChunks, write_file, indent=4)
-with open("testChunks.json", "w") as write_file:
-    json.dump(testChunks, write_file, indent=4)
-"""
-"""
-# Save chunks to read into Random Forest Classifier in run_RF.py
-df_train = pd.DataFrame(data=trainChunks)
-df_train.to_pickle("trainChunks.pkl")
-df_test = pd.DataFrame(data=testChunks)
-df_test.to_pickle("testChunks.pkl")
-df_testFine = pd.DataFrame(data=testFineChunks)
-df_testFine.to_pickle("testFineChunks.pkl")
-"""
 
