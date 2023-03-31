@@ -1,6 +1,6 @@
 #!/bin/bash -l 
 #SBATCH --ntasks=1 #number of nodes 
-#SBATCH --cpus-per-task=5 #number of processors
+#SBATCH --cpus-per-task=40 #number of processors
 #SBATCH --mem=1500000mb #maximum memory limit 
 #SBATCH -J run_RF #name of the job
 #SBATCH -e run_RF.err  #output message
