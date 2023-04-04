@@ -28,16 +28,29 @@ _c = const.c/1000
 
 np.seterr(invalid='ignore')
 
+ions_dict = {'CII': [1334],
+             'CIV': [1546, 1550],
+             'OI': [1302],
+             'MgII': [2796, 2803],
+             'AlII': [1670],
+             'SiII': [1260, 1304, 1526, 1808],
+             'SiIV': [1393, 1402],
+             'SII': [1250, 1253, 1259],
+             'MnII': [2576, 2594],
+             'FeII': [1608, 2600, 2382],
+             'NiII': [1709, 1741],
+             'ZnII': [2026],
+             'HI': [1215.67,1025.72,972.53,949.74]
+             }
+
 def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
     
     fluxdata       = data['Flux']
-    Ns_CIV_data    = data['NCIV']
-    zs_CIV_data    = data['zCIV']
-    Ns_MgII_data   = data['NMgII']
-    zs_MgII_data   = data['zMgII']
+    Ns_data        = data['Ndata']
+    zs_data        = data['zdata']
+    ions_data      = data['ionsdata']
     zqso_data      = data['zqso']
     wave_constwave = data['wave']
-
 
     # Slice spectrum into small regions and add tag for whether there is/isnt an absorber
     fluxslices = []
@@ -51,27 +64,26 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
         if source%100 == 0:
             print("Slicing spectrum %s"%source + " out of %s"%len(fluxdata))
         
-        Ns_CIV = np.array(Ns_CIV_data[source])
-        Ns_MgII = np.array(Ns_MgII_data[source])
+        Ns   = np.array(Ns_data[source])
+        zs   = np.array(zs_data[source])
+        ions = np.array(ions_data[source])
 
-        zs_CIV = np.array(zs_CIV_data[source])
-        zs_MgII = np.array(zs_MgII_data[source])
-        
-        spec_constwave = fluxdata[source]
+        # Determine wavelength of each absorption line
+        lines_obswl = []
+        for i, ion in enumerate(ions):
+            z_ion = zs[i]
+            restwls = ions_dict[ion.astype(str)]
+            lines_obswl.append([ion, list(np.array(restwls)*(1.+z_ion))])
 
         # Rebin spectra onto constant velocity
-        spec = rebin_spectrum(np.array(wave_constwave), np.array(spec_constwave), out_wave=wave, density=True)
-
-        # Determine observed wavelengths of absorbers
-        obs_CIV_1548_wave = 1548.*(zs_CIV + 1)
-        obs_CIV_1550_wave = 1550.*(zs_CIV + 1)
-
-        obs_MgII_2796_wave = 2796.4*(zs_MgII + 1)
-        obs_MgII_2803_wave = 2803.5*(zs_MgII + 1)
-       
+        spec_constwave = fluxdata[source]
+        spec = rebin_spectrum(np.array(wave_constwave), np.array(spec_constwave), 
+                              out_wave=wave, density=True)
+        
         zqso = zqso_data[source]
         wl_qso = 1215.67*(zqso + 1)        
 
+        # Create slices of the spectra with associated flags
         startidx = 0 #initialise first chunk
         num_idxs = 100 #size of window
 
@@ -87,57 +99,17 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
             if wave_slice[0] < wl_qso:
                 continue
 
-            # Record if there is an absorber or not
-            CIV1548_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1548_wave]
-            CIV1550_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_CIV_1550_wave]    
-
-            MgII2796_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2796_wave]    
-            MgII2803_present = [(wl > wave_slice[0]) & (wl < wave_slice[-1]) for wl in obs_MgII_2803_wave]  
-
             # Add slice to array of inputs
             fluxslices.append(flux_slice)
             #velslices.append(vel_slice)
             waveslices.append(wave_slice)
             
-            # If there is no absorption present, flag it as 0
-            allLines_present = CIV1548_present + CIV1550_present + MgII2796_present + MgII2803_present
-            if True not in allLines_present:
-                is_abs.append(0)
-                absInfo.append(['-',0, 0, "spec_" + str(source)]) 
-                continue
+            lines_present = find_lines_present(wave_slice, lines_obswl, Ns, zs)
 
-            # Check if there are multiple of the same line within the window
-            if (sum(CIV1548_present) > 1) |(sum(CIV1550_present) > 1) | (sum(MgII2796_present) > 1) |(sum(MgII2803_present) > 1):
-                is_abs.append(5)
-                absInfo.append(['multiple of same',0, 0, "spec_" + str(source)]) 
-                continue
-                
-            elif (True in CIV1548_present + CIV1550_present) & (True in MgII2796_present + MgII2803_present):
-                is_abs.append(4)
-                absInfo.append(['MgII+CIV',0, 0, "spec_" + str(source)]) 
-                continue
-
-            elif ((True in CIV1548_present) | (True in CIV1550_present)): 
-                matchidx = np.where(CIV1548_present)[0] 
-                if len(matchidx) > 0:
-                    if CIV1550_present[matchidx[0]]:
-                        is_abs.append(1)
-                        absInfo.append(['CIV', Ns_CIV[matchidx[0]], zs_CIV[matchidx[0]], "spec_" + str(source)])
-                        continue
-                is_abs.append(3)
-                absInfo.append(['partial CIV',0,0, "spec_" + str(source)])
-                continue
-
-            elif ((True in MgII2796_present) | (True in MgII2803_present)): 
-                matchidx = np.where(MgII2796_present)[0]    
-                if len(matchidx) > 0:
-                    if MgII2803_present[matchidx[0]]:
-                        is_abs.append(2)
-                        absInfo.append(['MgII', Ns_MgII[matchidx[0]], zs_MgII[matchidx[0]], "spec_" + str(source)])
-                        continue
-                is_abs.append(3)
-                absInfo.append(['partial MgII',0,0, "spec_" + str(source)])
-                
+            flag, desc, Nline, zline = determine_flag(lines_present)
+            is_abs.append(flag)
+            absInfo.append([desc, Nline, zline, "spec_" + str(source)])
+ 
     chunks = dict(fluxslices = fluxslices, 
                   waveslices = waveslices, 
                   #velslices = velslices, 
@@ -145,6 +117,106 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
                   absInfo = absInfo)
 
     return chunks
+
+def find_lines_present(wave_slice, lines_obswl, Ns, zs):
+    """
+    Create a list containing all the lines present in the slice along with 
+    column densities and redshifts
+    
+    Input
+    -----
+    wave_slice: array
+        array of wavelengths within slices
+    lines_obswl: list
+        list of lists containing observed wavelengths of all the lines in the 
+        spectrum
+
+    Returns
+    -------
+    lines_present: list
+        ion names, which transitions are present, column density, redshift
+
+    """
+    lines_present = []
+
+    for i, line in enumerate(lines_obswl):
+        present = []
+        for line_wl in line[1]:
+            if (line_wl > wave_slice[0]) & (line_wl < wave_slice[-1]):
+                present.append(True)
+            else:
+                present.append(False)
+        if True in present:
+            lines_present.append([line[0].astype(str),present, Ns[i], zs[i]])
+    return lines_present
+
+
+def determine_flag(lines_present):
+    """
+    Return a flag to be used as the target for training
+        0: noise - no lines
+        1: CIV doublet and nothing else
+        2: MgII doublet and nothing else
+        3: partial CIV or MgII and nothing else
+        4: other single line
+        5: other doublets or more
+        6: blends
+
+    Input   
+    -----
+    lines_present: list
+        list of strings where each entry corresponds to a line along with 
+        column density
+
+    Returns
+    -------
+    flag: int
+    desc: str
+        description of line
+    Nline: float
+        column density, where relevant otherwise 0
+    zline: float
+        redshift of absorber, where relevant otherwise 0   
+    """
+
+    NumIons = len(lines_present)
+
+    Nline = 0
+    zline = 0
+    
+    if NumIons == 0:
+        flag = 0 # noise
+        desc = '-'
+    elif NumIons > 1:
+        flag = 6 # blend
+        desc = 'blend'
+    elif NumIons == 1:
+        if lines_present[0][0] == 'CIV':
+            if all(lines_present[0][1]):
+                flag = 1
+                desc = 'CIV'
+                Nline = lines_present[0][2]
+                zline = lines_present[0][3]
+            else:
+                flag = 3
+                desc ='Partial CIV'
+        elif lines_present[0][0] == 'MgII':
+            if all(lines_present[0][1]):
+                flag = 2
+                desc = 'MgII'
+                Nline = lines_present[0][2]
+                zline = lines_present[0][3]
+            else:
+                flag = 3
+                desc = 'Partial MgII'
+        elif np.count_nonzero(lines_present[0][1]) > 1:
+            flag = 5
+            desc = 'Other doublet'
+        else:
+            flag = 4
+            desc = 'Other single line'
+
+    return flag, desc, Nline, zline
 
 def rebin_spectrum(in_wave, in_flux, out_wave=None, density=True):
     """
@@ -248,32 +320,21 @@ def read_json_spec(filename):
     return data
 
 def split_samples(specDict):
+    
+    trainSpec = dict()
+    testSpec = dict()
 
-    fluxdata = specDict['Flux'] 
-    Ns_CIV_data = specDict['NCIV'] 
-    zs_CIV_data = specDict['zCIV'] 
-    Ns_MgII_data = specDict['NMgII']
-    zs_MgII_data = specDict['zMgII']
-    zqso_data = specDict['zqso']
+    idx_split = int(len(specDict['Flux'])*0.7)
 
-    # Change to train-test split from sklearn
-    idx_split = int(len(fluxdata)*0.7)
+    keys = specDict.keys()
 
-    trainSpec = dict(Flux  = fluxdata[:idx_split],
-                     NCIV  = Ns_CIV_data[:idx_split],
-                     zCIV  = zs_CIV_data[:idx_split],
-                     NMgII = Ns_MgII_data[:idx_split],
-                     zMgII = zs_MgII_data[:idx_split],
-                     zqso  = zqso_data[:idx_split],
-                     wave  = specDict['wave'])
-
-    testSpec = dict(Flux  = fluxdata[idx_split:],
-                    NCIV  = Ns_CIV_data[idx_split:],
-                    zCIV  = zs_CIV_data[idx_split:],
-                    NMgII = Ns_MgII_data[idx_split:],
-                    zMgII = zs_MgII_data[idx_split:],
-                    zqso  = zqso_data[idx_split:],
-                    wave  = specDict['wave'])
+    for key in keys:
+        if key == 'wave':
+            trainSpec[key] = (specDict[key])
+            testSpec[key] = (specDict[key])
+        else:
+            trainSpec[key] = (specDict[key])[:idx_split]
+            testSpec[key] = (specDict[key])[idx_split:]
 
     return trainSpec, testSpec
 
@@ -288,8 +349,9 @@ def read_hdf5_spec(filelist):
     specfiles.sort()
 
     fluxdata = []
-    Ns_CIV_data, zs_CIV_data = [], []
-    Ns_MgII_data, zs_MgII_data  = [], []
+    Ns_data = []
+    zs_data  = []
+    ions_data  = []
     z_qso_data = []
 
     # Loop over hdf5 files
@@ -330,24 +392,21 @@ def read_hdf5_spec(filelist):
             # Get flux
             flux = fluxes[ind, :]
 
-            zMgII, NMgII, zCIV, NCIV, zMgII_clean, NMgII_clean, zCIV_clean, NCIV_clean =  extract_abs_properties(ind, sight, Ncat, wave)
-
+            zdata, Ndata, ionsdata  =  extract_abs_properties(ind, sight, Ncat, wave)
 
             # Drop systems where flux is all -999
             flux_check =  [flux[i] == -999. for i in range(len(flux))]
             if not all(flux_check):             
                 fluxdata.append(list(flux))
-                Ns_CIV_data.append(list(NCIV))
-                zs_CIV_data.append(list(zCIV))
-                Ns_MgII_data.append(list(NMgII))
-                zs_MgII_data.append(list(zMgII))
+                Ns_data.append(list(Ndata))
+                zs_data.append(list(zdata))
+                ions_data.append(list(ionsdata))
                 z_qso_data.append(zqso)
     
     specDict = dict(Flux  = fluxdata,
-                     NCIV  = Ns_CIV_data,
-                     zCIV  = zs_CIV_data,
-                     NMgII = Ns_MgII_data,
-                     zMgII = zs_MgII_data,
+                     zdata = zs_data,
+                     Ndata = Ns_data,
+                     ionsdata = ions_data,
                      wave  = list(wave),
                      orig_wave = data['wave'],
                      vel   = list(vel),
@@ -373,18 +432,23 @@ def extract_abs_properties(ind, sight, Ncat, wave):
     zabs = Nsight['zabs']
     ions = Nsight['ion']
     logNs = Nsight['logN']
-
-    #print(Nsight)
-
-    #Get MgII columns and redshifts
+    """
+    # Get MgII columns and redshifts
     inds = np.argwhere(ions == b'MgII')[:,0]
     zMgII = zabs[inds]
     NMgII = logNs[inds]
 
-    #Get CIV columns and redshifts
+    # Get CIV columns and redshifts
     inds = np.argwhere(ions == b'CIV')[:,0]
     zCIV = zabs[inds]
     NCIV = logNs[inds]
+
+    # Get columns and redshifts for other absorbers
+    inds = np.argwhere((ions != b'CIV') & (ions != b'MgII'))[:,0]
+    zOther = zabs[inds]
+    NOther = logNs[inds]
+    ionsOther = ions[inds]
+
 
     ################################################################################
     #WARNING -- a column density/redshift might be outputted but it's not covered by
@@ -394,17 +458,19 @@ def extract_abs_properties(ind, sight, Ncat, wave):
     MgII_lams = [2796.3543, 2803.5315]
     CIV_lams = [1548.2040, 1550.7810]
 
-    #Ensure MgII doublet is within wavelength range of spectrum
+    # Ensure MgII doublet is within wavelength range of spectrum
     MgII_cut_inds = (MgII_lams[0]*(1.0+zMgII) > np.min(wave)) * (MgII_lams[1]*(1.0+zMgII) < np.max(wave))
-    #Clean the absorber catalogue
+
+    # Clean the absorber catalogue
     zMgII_clean = zMgII[MgII_cut_inds]
     NMgII_clean = NMgII[MgII_cut_inds]
-    #Do same for CIV doublet
+    # Do same for CIV doublet
     CIV_cut_inds = (CIV_lams[0]*(1.0+zCIV) > np.min(wave)) * (CIV_lams[1]*(1.0+zCIV) < np.max(wave))
     zCIV_clean = zCIV[CIV_cut_inds]
     NCIV_clean = NCIV[CIV_cut_inds]
-    
-    return zMgII, NMgII, zCIV, NCIV, zMgII_clean, NMgII_clean, zCIV_clean, NCIV_clean
+    """
+
+    return zabs, logNs, ions # zMgII, NMgII, zCIV, NCIV, zMgII_clean, NMgII_clean, zCIV_clean, NCIV_clean, zOther, NOther, ionsOther
 
 ########################################################
 
