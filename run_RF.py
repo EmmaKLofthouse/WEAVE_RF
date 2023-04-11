@@ -509,7 +509,6 @@ testChunks = slice_input(testSpec,orig_wave_arr,50)# , wave, vel, 50)
 
 if __name__ == "__main__":
     print("Preprocessing data...")
-    # Balance samples
     train, train_wave, train_isabs, train_absInfo = preprocess(trainChunks) # train_vel,
     test, test_wave = testChunks['fluxslices'],  testChunks['waveslices'] #test_vel = testChunks['velslices'],
     test_isabs, test_absInfo = testChunks['is_abs'], testChunks['absInfo']
@@ -545,9 +544,9 @@ def plotCM(preds, test_isabs, sample_size):
     import seaborn as sn
     from matplotlib.colors import SymLogNorm
     preds_grouped = np.array(preds)
-    preds_grouped[preds_grouped >= 4] = 4
+    preds_grouped[preds_grouped >= 3] = 3
     test_isabs_grouped = np.array(test_isabs)
-    test_isabs_grouped[test_isabs_grouped >= 4] = 4
+    test_isabs_grouped[test_isabs_grouped >= 3] = 3
     cm = confusion_matrix(preds_grouped, test_isabs_grouped)
     sn.heatmap(cm, 
                annot=True, 
@@ -565,10 +564,10 @@ def plotCM(preds, test_isabs, sample_size):
 plotCM(preds, test_isabs, sample_size)
 
 print("Saving data...")
-utl.saveTrainData(train, train_isabs, train_absInfo, train_vel, train_wave, 
-              "train_data.pkl")
-utl.saveTestData(test, test_isabs, test_absInfo, test_vel, test_wave, preds, 
-             preds_probability, "test_data.pkl")
+#utl.saveTrainData(train, train_isabs, train_absInfo, train_vel, train_wave, 
+#              "train_data.pkl")
+#utl.saveTestData(test, test_isabs, test_absInfo, test_vel, test_wave, preds, 
+#             preds_probability, "test_data.pkl")
 #utl.saveTestData(testFine, testFine_isabs, testFine_absInfo, testFine_vel, 
 #             testFine_wave, predsFine, predsFine_probability, 
 #             "testFine_data.pkl")

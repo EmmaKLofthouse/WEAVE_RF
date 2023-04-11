@@ -13,7 +13,7 @@ def calc_recovery(true, recovered):
     return frac, fracerr
 
 
-def plotRecoveryFraction_type(test_isabs,preds,test_absInfo):
+def plotRecoveryFraction_type(preds,test_absInfo, sample_size):
 
     binsize = 0.3
     logNbins = np.arange(12,15.75,binsize)
@@ -82,13 +82,13 @@ def plotRecoveryFraction_type(test_isabs,preds,test_absInfo):
     plt.title('Identifying correct metal')
     plt.xlabel('logN')
     plt.ylabel('Recovery Fraction')
-    plt.savefig('plots/rf.pdf')
+    plt.savefig('plots/rf_spec' + str(sample_size) + '.pdf')
     plt.close()
 
     return
     
     
-def plotIdentifications(test_isabs,preds,test_absInfo):
+def plotIdentifications(test_isabs,preds,test_absInfo, sample_size):
     """
     Plot histograms of number of true absorbers, number correctly identified and those identified but as the wrong absorber
 
@@ -138,7 +138,7 @@ def plotIdentifications(test_isabs,preds,test_absInfo):
     plt.ylim(0,np.max(Total_CIV)*1.3)
 
     plt.ylabel('Number of absorbers')
-    plt.savefig('plots/idents_1.pdf')
+    plt.savefig('plots/idents_CIV_spec' + str(sample_size) +'.pdf')
     plt.close()
 
     #Plot MgII results
@@ -151,7 +151,7 @@ def plotIdentifications(test_isabs,preds,test_absInfo):
     plt.ylim(0,np.max(Total_MgII)*1.2)
 
     plt.ylabel('Number of absorbers')
-    plt.savefig('plots/idents_2.pdf')
+    plt.savefig('plots/idents_MgII_spec' + str(sample_size) +'.pdf')
     plt.close()
 
     return
