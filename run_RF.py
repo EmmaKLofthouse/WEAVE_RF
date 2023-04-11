@@ -261,10 +261,15 @@ def rebin_spectrum(in_wave, in_flux, out_wave=None, density=True):
     else:
       return np.diff(cumul_rebinned)
 
-
-
 def preprocess(chunks):
-    #balance samples so that there is roughly the same number of noise vs absorbers
+    """
+    Apply preprocessing of data, including balancing the number of samples with 
+    each flag so that they are roughly equal. 
+
+    """
+    # Balance samples so that there is roughly the same number of noise vs absorbers
+    # 0 = noise, 1 = CIV, 2 = MgII, 3 = partial, 4 = other single line,
+    # 5 = other doublets or more, 6 = blends
 
     fluxslicesAll = chunks['fluxslices']
     #velslicesAll  = chunks['velslices']
@@ -272,33 +277,33 @@ def preprocess(chunks):
     is_absAll     = chunks['is_abs']
     absInfoAll    = chunks['absInfo']
 
-    #find number of e.g. CIV absorbers
+    # Find number of samples for CIV and MgII
     nCIV = len(np.array(is_absAll)[np.array(is_absAll) == 1])
-    npartial = len(np.array(is_absAll)[np.array(is_absAll) == 3])
+    nMgII = len(np.array(is_absAll)[np.array(is_absAll) == 2])
 
-    #find where the noise samples are
-    idxs_noise = np.where(np.array(is_absAll)==0)[0]
+    # Choose absorber with smallest sample to balance all others to
+    nBalance = min([nCIV,nMgII])
+    idxs_to_delete = []
 
-    #check there are more noise chunks than CIV
-    if len(idxs_noise) > nCIV:
+    # Loop over other flags and if there are more samples than minimum of nCIV 
+    # or nMgII, delete indices at random so that there are the same number
+    for flag in range(7):
+        # Find number of samples with this flag
+        nFlag = len(np.array(is_absAll)[np.array(is_absAll) == flag])
 
-        #randomly select nCIV indices from idxs_noise
-        idxs_to_delete = np.random.choice(idxs_noise, len(idxs_noise) - nCIV, replace=False)
-        #idxs_to_delete = np.random.choice(idxs_noise, len(idxs_noise) - npartial, replace=False)
-        
-        #delete indices from flux, vel, wave, is_abs and absInfo
-        fluxslices = list(np.delete(np.array(fluxslicesAll),idxs_to_delete,0))
-        #velslices  = list(np.delete(np.array(velslicesAll),idxs_to_delete,0))
-        waveslices = list(np.delete(np.array(waveslicesAll),idxs_to_delete,0))
-        is_abs     = list(np.delete(np.array(is_absAll),idxs_to_delete,0))
-        absInfo    = list(np.delete(np.array(absInfoAll),idxs_to_delete,0))
+        if nFlag > nBalance:
+            # Find indices of samples with this flag
+            idxs_flag = np.where(np.array(is_absAll) == flag)[0]
 
-    else:
-        fluxslices = fluxslicesAll
-        #velslices  = velslicesAll
-        waveslices = waveslicesAll
-        is_abs     = is_absAll
-        absInfo    = absInfoAll
+            # Randomly select indices to delete
+            idxs_to_delete+=list(np.random.choice(idxs_flag, len(idxs_flag) - nBalance, replace=False))
+            
+    #delete indices from flux, vel, wave, is_abs and absInfo
+    fluxslices = list(np.delete(np.array(fluxslicesAll),idxs_to_delete,0))
+    #velslices  = list(np.delete(np.array(velslicesAll),idxs_to_delete,0))
+    waveslices = list(np.delete(np.array(waveslicesAll),idxs_to_delete,0))
+    is_abs     = list(np.delete(np.array(is_absAll),idxs_to_delete,0))
+    absInfo    = list(np.delete(np.array(absInfoAll),idxs_to_delete,0))
 
     return fluxslices, waveslices, is_abs, absInfo #velslices, 
  
@@ -553,7 +558,7 @@ def plotCM(preds, test_isabs, sample_size):
                fmt='g')
     plt.xlabel('True Class', fontsize=10)
     plt.ylabel('Predicted Class', fontsize=10)
-    plt.savefig("cm_classifier_spec" + str(sample_size) + ".pdf")
+    plt.savefig("plots/cm_classifier_spec" + str(sample_size) + ".pdf")
     plt.close()
     
     return
