@@ -7,7 +7,7 @@
 #SBATCH -o run_RF.out  #output message
 #SBATCH -p cosma7-mad #program to charge 
 #SBATCH -A mad #account 
-#SBATCH --time=02:00:00  #wall time
+#SBATCH --time=10:00:00  #wall time
 #SBATCH --mail-user=emmakatherine.lofthouse@unimib.it
 #SBATCH --mail-type=END        #email
 

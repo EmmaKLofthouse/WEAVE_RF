@@ -282,7 +282,7 @@ def preprocess(chunks):
     nMgII = len(np.array(is_absAll)[np.array(is_absAll) == 2])
 
     # Choose absorber with smallest sample to balance all others to
-    nBalance = min([nCIV,nMgII])
+    nBalance = max([nCIV,nMgII])
     idxs_to_delete = []
 
     # Loop over other flags and if there are more samples than minimum of nCIV 
@@ -537,8 +537,10 @@ pl.plotRecoveryFraction_type(preds,test_absInfo, sample_size)
 print("Creating identification plots...")
 pl.plotIdentifications(test_isabs,preds,test_absInfo, sample_size)
 
-print("Plotting confusion matrix...")
+print("Creating false positives plots...")
+pl.plot_false_positives(preds,test_isabs,test_absInfo, sample_size)
 
+print("Plotting confusion matrix...")
 def plotCM(preds, test_isabs, sample_size):
     from sklearn.metrics import confusion_matrix
     import seaborn as sn

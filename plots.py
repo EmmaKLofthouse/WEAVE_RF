@@ -156,27 +156,50 @@ def plotIdentifications(test_isabs,preds,test_absInfo, sample_size):
 
     return
 
-def plotCM(preds, test_isabs):
-    from sklearn.metrics import confusion_matrix
-    import seaborn as sn
-    from matplotlib.colors import SymLogNorm
-    preds_grouped = np.array(preds)
-    preds_grouped[preds_grouped >= 4] = 4
-    test_isabs_grouped = np.array(test_isabs)
-    test_isabs_grouped[test_isabs_grouped >= 4] = 4
-    cm = confusion_matrix(preds_grouped, test_isabs_grouped)
-    sn.heatmap(cm, 
-               annot=True, 
-               norm=SymLogNorm(linthresh=0.03, linscale=0.03, vmin=-1.0, 
-                               vmax=1e5, base=10),
-               cbar_kws={"ticks":[0,1,10,1e2,1e3,1e4]}, 
-               annot_kws={"size":8}, 
-               fmt='g')
-    plt.xlabel('True Class', fontsize=10)
-    plt.ylabel('Predicted Class', fontsize=10)
-    plt.savefig("cm_classifier.pdf")
+def plot_false_positives(preds,test_isabs,test_absInfo, sample_size):
+    """
+    Plot number of false positives for CIV and MgII as a function of
+    column density
+    """
+
+    binsize = 0.3
+    logNbins = np.arange(12,15.75,binsize)
+    Nvals = np.array(test_absInfo)[:,1]
+
+    False_positives_CIV = []
+    False_positives_MgII = []
+    True_positives_CIV = []
+    True_positives_MgII = []
+
+    for n in range(1,len(logNbins)):
+
+        Nmask = [(float(nv) > logNbins[n-1]) & (float(nv) <= logNbins[n]) for nv in Nvals]
+
+        preds_Nbin = preds[Nmask]
+        true_Nbin = test_isabs[Nmask]
+
+        # Count number of False and True positives
+        True_positives_CIV.append(sum([((pred==1) & (true_Nbin[i]==1)) for i, pred in enumerate(preds_Nbin))]))
+        False_positives_CIV.append(sum([((pred==1) & (true_Nbin[i]!=1)) for i, pred in enumerate(preds_Nbin))]))
+        True_positives_MgII.append(sum([((pred==2) & (true_Nbin[i]==2)) for i, pred in enumerate(preds_Nbin))]))
+        False_positives_MgII.append(sum([((pred==2) & (true_Nbin[i]!=2)) for i, pred in enumerate(preds_Nbin))]))
+
+    plt.plot(logNbins[:-1]+binsize/2,True_positives_MgII,linestyle=' ',capsize=3,label='True MgII')
+    plt.plot(logNbins[:-1]+binsize/2,True_positives_CIV,linestyle=' ',capsize=3,label='True CIV')
+    plt.plot(logNbins[:-1]+binsize/2,False_positives_MgII,linestyle=' ',capsize=3,label='False MgII')
+    plt.plot(logNbins[:-1]+binsize/2,False_positives_CIV,linestyle=' ',capsize=3,label='False CIV')
+
+    plt.legend()
+    plt.ylim(0,1.1)
+    plt.xlabel('logN')
+    plt.ylabel('Number of absorbers')
+    plt.savefig('plots/false_positives_spec' + str(sample_size) + '.pdf')
     plt.close()
     
     return
+
+
+
+
 
 
