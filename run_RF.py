@@ -51,6 +51,7 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
     ions_data      = data['ionsdata']
     zqso_data      = data['zqso']
     wave_constwave = data['wave']
+    EW_data        = data['EWdata']
 
     # Slice spectrum into small regions and add tag for whether there is/isnt an absorber
     fluxslices = []
@@ -67,6 +68,7 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
         Ns   = np.array(Ns_data[source])
         zs   = np.array(zs_data[source])
         ions = np.array(ions_data[source])
+        EWs_info = np.array(EW_data[source])
 
         # Determine wavelength of each absorption line
         lines_obswl = []
@@ -106,7 +108,7 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
             
             lines_present = find_lines_present(wave_slice, lines_obswl, Ns, zs)
 
-            flag, desc, Nline, zline = determine_flag(lines_present)
+            flag, desc, Nline, zline = determine_flag(lines_present, EWs_info)
             is_abs.append(flag)
             absInfo.append([desc, Nline, zline, "spec_" + str(source)])
  
@@ -151,7 +153,7 @@ def find_lines_present(wave_slice, lines_obswl, Ns, zs):
     return lines_present
 
 
-def determine_flag(lines_present):
+def determine_flag(lines_present, EWs_info):
     """
     Return a flag to be used as the target for training
         0: noise - no lines
@@ -193,19 +195,39 @@ def determine_flag(lines_present):
     elif NumIons == 1:
         if lines_present[0][0] == 'CIV':
             if all(lines_present[0][1]):
-                flag = 1
-                desc = 'CIV'
-                Nline = lines_present[0][2]
-                zline = lines_present[0][3]
+                #Check that lines are above EW threshold
+                EW_threshold = 0.1
+                CIVmask = [name.astype(str) =='CIV' for name in EWs_info['ion']]
+                zmask = [str(zcheck)[:5] == str(lines_present[0][3])[:5] for zcheck in EWs_info['zabs']]
+
+                EWs_lines = EWs_info[np.array(CIVmask) & np.array(zmask)]['EW']
+                if max(EWs_lines) > EW_threshold:
+                    flag = 1
+                    desc = 'CIV'
+                    Nline = lines_present[0][2]
+                    zline = lines_present[0][3]
+                else:
+                    flag = 0 # noise
+                    desc = '-'
             else:
                 flag = 3
                 desc ='Partial CIV'
         elif lines_present[0][0] == 'MgII':
             if all(lines_present[0][1]):
-                flag = 2
-                desc = 'MgII'
-                Nline = lines_present[0][2]
-                zline = lines_present[0][3]
+                #Check that lines are above EW threshold
+                EW_threshold = 0.1
+                CIVmask = [name.astype(str) =='CIV' for name in EWs_info['ion']]
+                zmask = [str(zcheck)[:5] == str(lines_present[0][3])[:5] for zcheck in EWs_info['zabs']]
+
+                EWs_lines = EWs_info[np.array(CIVmask) & np.array(zmask)]['EW']
+                if max(EWs_lines) > EW_threshold:
+                    flag = 2
+                    desc = 'MgII'
+                    Nline = lines_present[0][2]
+                    zline = lines_present[0][3]
+                else:
+                    flag = 0 # noise
+                    desc = '-'
             else:
                 flag = 3
                 desc = 'Partial MgII'
@@ -266,6 +288,22 @@ def preprocess(chunks):
     Apply preprocessing of data, including balancing the number of samples with 
     each flag so that they are roughly equal. 
 
+    Input   
+    -----
+    chunks: dict
+        contains fluxes, wavelengths and absorber information for all slices
+
+    Returns
+    -------
+    fluxslices: list
+        flux for each slice
+    waveslices: list
+        wavelength for each slice
+    is_abs: list
+        flag indicating if slice contains an absorber
+    absInfo: list
+        where absorber is present, include information e.g. column density
+        redshift
     """
     # Balance samples so that there is roughly the same number of noise vs absorbers
     # 0 = noise, 1 = CIV, 2 = MgII, 3 = partial, 4 = other single line,
@@ -282,7 +320,7 @@ def preprocess(chunks):
     nMgII = len(np.array(is_absAll)[np.array(is_absAll) == 2])
 
     # Choose absorber with smallest sample to balance all others to
-    nBalance = max([nCIV,nMgII])
+    nBalance = min([nCIV,nMgII])
     idxs_to_delete = []
 
     # Loop over other flags and if there are more samples than minimum of nCIV 
@@ -308,7 +346,21 @@ def preprocess(chunks):
     return fluxslices, waveslices, is_abs, absInfo #velslices, 
  
 def run_RF(train, train_isabs):
+    """
+    Create the random forest model and train it on the training set
 
+    Input
+    -----
+    train: list
+        list of the flux for each slice
+    train_isabs: list
+        flag indicating whether the slice has an absorber
+
+    Returns
+    -------
+    model: sklearn.ensemble.forest.RandomForestClassifier
+        Random forest model trained on trianing data
+    """
     print("Build the forest...")
     Forest=RandomForestClassifier(n_estimators=1000,criterion='gini',max_depth=None,
                                   min_samples_split=10,min_samples_leaf=1,max_features=40,
@@ -358,6 +410,7 @@ def read_hdf5_spec(filelist):
     zs_data  = []
     ions_data  = []
     z_qso_data = []
+    EW_data = []
 
     # Loop over hdf5 files
     for hdf5file in specfiles:
@@ -384,6 +437,7 @@ def read_hdf5_spec(filelist):
             
         #Column densities
         Ncat = data['absorbers'] #Group of nsight numpy recarrays
+        EWcat = data['EWs']
 
         # Loop over each sightline
         for ind in range(len(Ncat)):
@@ -393,7 +447,23 @@ def read_hdf5_spec(filelist):
             # Get qso properties
             zqso = zems[ind]
             Rqso = Rqsos[ind]
-            
+
+
+            EWsight = np.array(EWcat[sight])
+            """            
+            EWcat = None
+            if 'EWs' in data:
+	            EWcat = data['EWs']
+	            #Load the EWs for the sightline of interest
+	            EWsight = np.array(EWcat[sight])
+	            #extract the information for each absorption line created
+	            ions = EWsight['ion'] # array of encoded ion strings (e.g. b'MgII')
+	            wls = EWsight['wl'] # array of encoded wavelength strings (e.g. b'2796')
+	            zabs = EWsight['zabs'] #Array of the redshfit (float) of the absorber
+	            lams = EWsight['lam'] #Array of the observed-frame wavelength of the line (float)
+	            EWs = EWsight['EW'] #NMFPM rest-frame EW of the absorption line created
+	            #print(EWsight)
+            """
             # Get flux
             flux = fluxes[ind, :]
 
@@ -407,6 +477,7 @@ def read_hdf5_spec(filelist):
                 zs_data.append(list(zdata))
                 ions_data.append(list(ionsdata))
                 z_qso_data.append(zqso)
+                EW_data.append(EWsight)
     
     specDict = dict(Flux  = fluxdata,
                      zdata = zs_data,
@@ -415,7 +486,8 @@ def read_hdf5_spec(filelist):
                      wave  = list(wave),
                      orig_wave = data['wave'],
                      vel   = list(vel),
-                     zqso  = z_qso_data)
+                     zqso  = z_qso_data,
+                     EWdata   = EW_data)
     
     return specDict
 
@@ -437,45 +509,8 @@ def extract_abs_properties(ind, sight, Ncat, wave):
     zabs = Nsight['zabs']
     ions = Nsight['ion']
     logNs = Nsight['logN']
-    """
-    # Get MgII columns and redshifts
-    inds = np.argwhere(ions == b'MgII')[:,0]
-    zMgII = zabs[inds]
-    NMgII = logNs[inds]
 
-    # Get CIV columns and redshifts
-    inds = np.argwhere(ions == b'CIV')[:,0]
-    zCIV = zabs[inds]
-    NCIV = logNs[inds]
-
-    # Get columns and redshifts for other absorbers
-    inds = np.argwhere((ions != b'CIV') & (ions != b'MgII'))[:,0]
-    zOther = zabs[inds]
-    NOther = logNs[inds]
-    ionsOther = ions[inds]
-
-
-    ################################################################################
-    #WARNING -- a column density/redshift might be outputted but it's not covered by
-    #the wavelength range of the spectrum! May want to clean the absorber catalogue a bit...
-
-    #Wavelength of the doublets
-    MgII_lams = [2796.3543, 2803.5315]
-    CIV_lams = [1548.2040, 1550.7810]
-
-    # Ensure MgII doublet is within wavelength range of spectrum
-    MgII_cut_inds = (MgII_lams[0]*(1.0+zMgII) > np.min(wave)) * (MgII_lams[1]*(1.0+zMgII) < np.max(wave))
-
-    # Clean the absorber catalogue
-    zMgII_clean = zMgII[MgII_cut_inds]
-    NMgII_clean = NMgII[MgII_cut_inds]
-    # Do same for CIV doublet
-    CIV_cut_inds = (CIV_lams[0]*(1.0+zCIV) > np.min(wave)) * (CIV_lams[1]*(1.0+zCIV) < np.max(wave))
-    zCIV_clean = zCIV[CIV_cut_inds]
-    NCIV_clean = NCIV[CIV_cut_inds]
-    """
-
-    return zabs, logNs, ions # zMgII, NMgII, zCIV, NCIV, zMgII_clean, NMgII_clean, zCIV_clean, NCIV_clean, zOther, NOther, ionsOther
+    return zabs, logNs, ions 
 
 ########################################################
 
@@ -491,9 +526,6 @@ training_list = "training_mocks.lst"
 training_listSpec = read_hdf5_spec(training_list)
 
 orig_wave_arr = np.array(training_listSpec['orig_wave'])
-#weave_wave = training_listSpec['wave']
-#vel = training_listSpec['vel']
-
 sample_size = len(training_listSpec['Flux'])
 
 print("Splitting train and test samples...")
@@ -526,50 +558,65 @@ preds = model.predict(test)
 
 # If you want confidence, return probability of classes
 preds_probability = model.predict_proba(test)
+
 #predsFine_probability = model.predict_proba(testFine)
 # Return the mean accuracy on the given test data and labels
 score = model.score(test,test_isabs)
 #scoreFine = model.score(testFine, testFine_isabs)
 
-print("Creating recovery fraction plot for detection of metal types...")
-pl.plotRecoveryFraction_type(preds,test_absInfo, sample_size)
+# Find predictions if only accept doublets which have been identified at 
+# high confidence
+for prob_cut in [0.3,0.5]:
+    preds_highConf = np.zeros(len(preds))
 
-print("Creating identification plots...")
-pl.plotIdentifications(test_isabs,preds,test_absInfo, sample_size)
+    strongCIV = [((probs[1]>0.5) & (probs[1] == max(probs))) for probs in preds_probability]
+    strongMgII = [((probs[2]>0.5) & (probs[2] == max(probs))) for probs in preds_probability]
+    strongOther = [((max(probs[3:])>0.5) & (max(probs[3:]) == max(probs))) for probs in preds_probability]
 
-print("Creating false positives plots...")
-pl.plot_false_positives(preds,test_isabs,test_absInfo, sample_size)
+    preds_highConf[strongCIV] = 1
+    preds_highConf[strongMgII] = 2
+    preds_highConf[strongOther] = 3
 
-print("Plotting confusion matrix...")
-def plotCM(preds, test_isabs, sample_size):
-    from sklearn.metrics import confusion_matrix
-    import seaborn as sn
-    from matplotlib.colors import SymLogNorm
-    preds_grouped = np.array(preds)
-    preds_grouped[preds_grouped >= 3] = 3
-    test_isabs_grouped = np.array(test_isabs)
-    test_isabs_grouped[test_isabs_grouped >= 3] = 3
-    cm = confusion_matrix(preds_grouped, test_isabs_grouped)
-    sn.heatmap(cm, 
-               annot=True, 
-               norm=SymLogNorm(linthresh=0.03, linscale=0.03, vmin=-1.0, 
-                               vmax=1e5, base=10),
-               cbar_kws={"ticks":[0,1,10,1e2,1e3,1e4]}, 
-               annot_kws={"size":8}, 
-               fmt='g')
-    plt.xlabel('True Class', fontsize=10)
-    plt.ylabel('Predicted Class', fontsize=10)
-    plt.savefig("plots/cm_classifier_spec" + str(sample_size) + ".pdf")
-    plt.close()
-    
-    return
-plotCM(preds, test_isabs, sample_size)
+    print("Creating recovery fraction plot for detection of metal types...")
+    pl.plotRecoveryFraction_type(preds,test_absInfo, sample_size)
+    pl.plotRecoveryFraction_type(preds_highConf,test_absInfo, str(sample_size) + "_highConf_"+str(prob_cut))
+
+    print("Creating identification plots...")
+    pl.plotIdentifications(test_isabs,preds,test_absInfo, sample_size)
+
+    print("Plotting confusion matrix...")
+    def plotCM(preds, test_isabs, sample_size):
+        from sklearn.metrics import confusion_matrix
+        import seaborn as sn
+        from matplotlib.colors import SymLogNorm
+        preds_grouped = np.array(preds)
+        preds_grouped[preds_grouped >= 3] = 3
+        test_isabs_grouped = np.array(test_isabs)
+        test_isabs_grouped[test_isabs_grouped >= 3] = 3
+        cm = confusion_matrix(preds_grouped, test_isabs_grouped)
+        sn.heatmap(cm, 
+                   annot=True, 
+                   norm=SymLogNorm(linthresh=0.03, linscale=0.03, vmin=-1.0, 
+                                   vmax=1e5, base=10),
+                   cbar_kws={"ticks":[0,1,10,1e2,1e3,1e4]}, 
+                   annot_kws={"size":8}, 
+                   fmt='g')
+        plt.xlabel('True Class', fontsize=10)
+        plt.ylabel('Predicted Class', fontsize=10)
+        plt.savefig("plots/cm_classifier_spec" + str(sample_size) + ".pdf")
+        plt.close()
+        
+        return
+
+    plotCM(preds, test_isabs, sample_size)
+    plotCM(preds_highConf, test_isabs, str(sample_size) + "_highConf_"+str(prob_cut))
 
 print("Saving data...")
-#utl.saveTrainData(train, train_isabs, train_absInfo, train_vel, train_wave, 
-#              "train_data.pkl")
-#utl.saveTestData(test, test_isabs, test_absInfo, test_vel, test_wave, preds, 
-#             preds_probability, "test_data.pkl")
+utl.saveTrainData(train, train_isabs, train_absInfo, train_wave, "train_data.pkl") #, train_vel,
+utl.saveTestData(test, test_isabs, test_absInfo, test_wave, preds, 
+             preds_probability, preds_highConf,"test_data.pkl") #, test_vel,
+
+
 #utl.saveTestData(testFine, testFine_isabs, testFine_absInfo, testFine_vel, 
 #             testFine_wave, predsFine, predsFine_probability, 
 #             "testFine_data.pkl")
