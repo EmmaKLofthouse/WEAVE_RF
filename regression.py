@@ -95,7 +95,7 @@ def read_data(trainfile,testfile, flag):
     original_id_test: list
         list of indices from the original dataframe
     """
-
+    print("Train data...")
     train_data = pd.read_pickle(trainfile)  
     
     # Include everything but give things which don't match the flag a target 
@@ -104,14 +104,15 @@ def read_data(trainfile,testfile, flag):
     # Or just train on CIV?
     absorbers_train = train_data[train_data['isabs'] == flag]
 
+    print("Test data...")
     test_data  = pd.read_pickle(testfile)  
     
     # If running on what we know are absorbers use test_data['isabs'] == flag.
     # If running on things that have been identified by classifier as absorbers
     # use test_data['preds'] == flag
     preds_prob_flag = np.array([i[flag] for i in test_data['preds_probability']])
-    absorbers_test = test_data[preds_prob_flag>0.5]
-    original_id_test = np.where(preds_prob_flag>0.5)[0]
+    absorbers_test = test_data[preds_prob_flag>0.3]
+    original_id_test = np.where(preds_prob_flag>0.3)[0]
 
     #combine so that you can preprocess together
     idx_split = len(absorbers_train)
@@ -159,6 +160,22 @@ def find_target_index(absorbers,zarr, restwl, flag):
     return target_index
 
 def index_to_redshift(preds_idx,absorbers, restwl):
+    """
+    Convert the predicted indices into redshifts of the absorber
+
+    Input
+    -----
+    preds_idx: list
+        indices predicted by regression model
+    absorbers:
+    restwl: float
+        rest wavelength of the absorption line, e.g. 1548 for CIV
+
+    Returns
+    -------
+    preds_z: numpy array
+        predicted redshifts
+    """
 
     preds_wave = []
 
@@ -210,7 +227,25 @@ def preprocess(absorbers,target_index,flux,z_abs,idx_split):
     return traindict, testdict
 
 def remove_duplicates(testdict,preds_idx,original_id_test):
+    """
+    Remove instances where the same absorption line shows up in multiple slices
+    choosing the one where it is nearest the centre of the slice
 
+    Input
+    -----
+    testdict: dict
+    preds_idx: list
+        index at which the regression model predicts the absorption to be
+    original_id_test: list
+        list of indices from the original dataframe
+    
+    Returns
+    -------
+    chosen_absorbers: pandas DataFrame
+    chosen_preds_idx: numpy array
+    chosen_target_idx: numpy array
+    chosen_z: numpy array
+    """
     test_absorbers = testdict['absorbers']    
     test_specNum = []
     for _,i in enumerate(test_absorbers['absInfo']):
@@ -277,7 +312,9 @@ elif flag == 2:
     restwl = 2796
 
 print("Reading data...")
-absorbers, idx_split,original_id_test = read_data('train_data.pkl','testFine_data.pkl', flag)
+# classification model name
+classModel = "model_spec9557_EW0.2_withWeakFlag.joblib"
+absorbers, idx_split, original_id_test = read_data('train_data.pkl','testFine_data.pkl', flag)
 
 print("Extracting absorber information...")
 #extract and reformat absorber information
@@ -295,6 +332,10 @@ traindict, testdict = preprocess(absorbers,target_index,flux,z_abs,idx_split)
 print("Creating and training model...")
 #run random forest regression model
 model = run_regressor(traindict['flux'], traindict['target_index'])
+
+print("Saving model...")
+import joblib
+joblib.dump(model, "regression_" + classModel)
 
 print("Making predictions...")
 #use model to predict index on test sample
