@@ -43,7 +43,7 @@ ions_dict = {'CII': [1334],
              'HI': [1215.67,1025.72,972.53,949.74]
              }
 
-def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
+def slice_input(data, wave, slide_idx, EW_threshold): #(data, wave, vel, slide_idx):
     
     fluxdata       = data['Flux']
     Ns_data        = data['Ndata']
@@ -108,7 +108,7 @@ def slice_input(data, wave, slide_idx): #(data, wave, vel, slide_idx):
             
             lines_present = find_lines_present(wave_slice, lines_obswl, Ns, zs)
 
-            flag, desc, Nline, zline = determine_flag(lines_present, EWs_info)
+            flag, desc, Nline, zline = determine_flag(lines_present, EWs_info, EW_threshold)
             is_abs.append(flag)
             absInfo.append([desc, Nline, zline, "spec_" + str(source)])
  
@@ -153,7 +153,7 @@ def find_lines_present(wave_slice, lines_obswl, Ns, zs):
     return lines_present
 
 
-def determine_flag(lines_present, EWs_info):
+def determine_flag(lines_present, EWs_info, EW_threshold):
     """
     Return a flag to be used as the target for training
         0: noise - no lines
@@ -196,7 +196,7 @@ def determine_flag(lines_present, EWs_info):
         if lines_present[0][0] == 'CIV':
             if all(lines_present[0][1]):
                 #Check that lines are above EW threshold
-                EW_threshold = 0.1
+                #EW_threshold = 0.2
                 CIVmask = [name.astype(str) =='CIV' for name in EWs_info['ion']]
                 zmask = [str(zcheck)[:5] == str(lines_present[0][3])[:5] for zcheck in EWs_info['zabs']]
 
@@ -207,15 +207,15 @@ def determine_flag(lines_present, EWs_info):
                     Nline = lines_present[0][2]
                     zline = lines_present[0][3]
                 else:
-                    flag = 0 # noise
-                    desc = '-'
+                    flag = 7
+                    desc = 'weak'
             else:
                 flag = 3
                 desc ='Partial CIV'
         elif lines_present[0][0] == 'MgII':
             if all(lines_present[0][1]):
                 #Check that lines are above EW threshold
-                EW_threshold = 0.1
+                #EW_threshold = 0.05
                 CIVmask = [name.astype(str) =='CIV' for name in EWs_info['ion']]
                 zmask = [str(zcheck)[:5] == str(lines_present[0][3])[:5] for zcheck in EWs_info['zabs']]
 
@@ -226,8 +226,8 @@ def determine_flag(lines_present, EWs_info):
                     Nline = lines_present[0][2]
                     zline = lines_present[0][3]
                 else:
-                    flag = 0 # noise
-                    desc = '-'
+                    flag = 7
+                    desc = 'weak'
             else:
                 flag = 3
                 desc = 'Partial MgII'
@@ -325,7 +325,7 @@ def preprocess(chunks):
 
     # Loop over other flags and if there are more samples than minimum of nCIV 
     # or nMgII, delete indices at random so that there are the same number
-    for flag in range(7):
+    for flag in np.unique(is_absAll):
         # Find number of samples with this flag
         nFlag = len(np.array(is_absAll)[np.array(is_absAll) == flag])
 
@@ -534,10 +534,11 @@ trainSpec, testSpec = split_samples(training_listSpec)
 print("Slicing spectra...")
 # Split spectra into chunks and assign flag for absorbers
 # Use a fine sliding for train sample but larger for test to avoid duplication
-trainChunks = slice_input(trainSpec,orig_wave_arr,5)#, wave, vel, 5) # Give all the data and a 
+EW_threshold = 0.2
+trainChunks = slice_input(trainSpec,orig_wave_arr,5, EW_threshold)#, wave, vel, 5) # Give all the data and a 
                                                 # value to shift the window by
-testChunks = slice_input(testSpec,orig_wave_arr,50)# , wave, vel, 50)
-#testFineChunks = slice_input(testSpec,orig_wave_arr,5) #, wave, vel, 5)
+testChunks = slice_input(testSpec,orig_wave_arr,50, EW_threshold)# , wave, vel, 50)
+testFineChunks = slice_input(testSpec,orig_wave_arr,5) #, wave, vel, 5)
 
 if __name__ == "__main__":
     print("Preprocessing data...")
@@ -545,11 +546,16 @@ if __name__ == "__main__":
     test, test_wave = testChunks['fluxslices'],  testChunks['waveslices'] #test_vel = testChunks['velslices'],
     test_isabs, test_absInfo = testChunks['is_abs'], testChunks['absInfo']
 
-    #testFine, testFine_vel, testFine_wave = testFineChunks['fluxslices'], testFineChunks['velslices'], testFineChunks['waveslices'] 
-    #testFine_isabs, testFine_absInfo = testFineChunks['is_abs'], testFineChunks['absInfo']
+    testFine, testFine_vel, testFine_wave = testFineChunks['fluxslices'], testFineChunks['velslices'], testFineChunks['waveslices'] 
+    testFine_isabs, testFine_absInfo = testFineChunks['is_abs'], testFineChunks['absInfo']
 
     print("Runnning Random Forest...")
     model = run_RF(train, train_isabs)
+
+
+print("Saving model...")
+import joblib
+joblib.dump(model, "model_spec" + str(sample_size) + "_EW" + str(EW_threshold) + "_withWeakFlag.joblib")
 
 print("Making predictions...")
 # Classify whether test sample are absorber or not
@@ -566,12 +572,12 @@ score = model.score(test,test_isabs)
 
 # Find predictions if only accept doublets which have been identified at 
 # high confidence
-for prob_cut in [0.3,0.5]:
+for prob_cut in [0.25,0.3,0.5]:
     preds_highConf = np.zeros(len(preds))
 
-    strongCIV = [((probs[1]>0.5) & (probs[1] == max(probs))) for probs in preds_probability]
-    strongMgII = [((probs[2]>0.5) & (probs[2] == max(probs))) for probs in preds_probability]
-    strongOther = [((max(probs[3:])>0.5) & (max(probs[3:]) == max(probs))) for probs in preds_probability]
+    strongCIV = [((probs[1]>prob_cut) & (probs[1] == max(probs))) for probs in preds_probability]
+    strongMgII = [((probs[2]>prob_cut) & (probs[2] == max(probs))) for probs in preds_probability]
+    strongOther = [((max(probs[3:])>prob_cut) & (max(probs[3:]) == max(probs))) for probs in preds_probability]
 
     preds_highConf[strongCIV] = 1
     preds_highConf[strongMgII] = 2
@@ -612,14 +618,14 @@ for prob_cut in [0.3,0.5]:
     plotCM(preds_highConf, test_isabs, str(sample_size) + "_highConf_"+str(prob_cut))
 
 print("Saving data...")
-utl.saveTrainData(train, train_isabs, train_absInfo, train_wave, "train_data.pkl") #, train_vel,
+utl.saveTrainData(train, train_isabs, train_absInfo, train_wave, "train_data" + str(sample_size) + "_EW" + str(EW_threshold) + "_withWeakFlag.pkl") #, train_vel,
 utl.saveTestData(test, test_isabs, test_absInfo, test_wave, preds, 
-             preds_probability, preds_highConf,"test_data.pkl") #, test_vel,
+             preds_probability, preds_highConf,"test_data" + str(sample_size) + "_EW" + str(EW_threshold) + "_withWeakFlag.pkl") #, test_vel,
 
 
-#utl.saveTestData(testFine, testFine_isabs, testFine_absInfo, testFine_vel, 
-#             testFine_wave, predsFine, predsFine_probability, 
-#             "testFine_data.pkl")
+utl.saveTestData(testFine, testFine_isabs, testFine_absInfo, testFine_vel, 
+             testFine_wave, predsFine, predsFine_probability, 
+             "testFine_data.pkl")
 
 end_time = datetime.now()
 runtime = end_time - start_time

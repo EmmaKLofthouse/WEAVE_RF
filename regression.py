@@ -58,7 +58,7 @@ def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_te
         plt.close()
     
     """
-    best_idxs = np.where(dz<0.000015)
+    best_idxs = np.where(dz<0.00001)
 
     for oi in best_idxs[0]:
         besti = absorbers_test.iloc[oi]
@@ -73,7 +73,9 @@ def create_outlier_plots(preds_z,z_test,preds_idx,target_index_test,absorbers_te
     """
     return 
 
-def read_data(trainfile,testfile, flag):
+
+#def read_data(trainfile,testfile, flag):
+def read_data(testfile, flag):
     """
     Read in the data files of training and test data from run_RF.py
 
@@ -95,14 +97,15 @@ def read_data(trainfile,testfile, flag):
     original_id_test: list
         list of indices from the original dataframe
     """
+    """
     print("Train data...")
     train_data = pd.read_pickle(trainfile)  
     
     # Include everything but give things which don't match the flag a target 
-    # index of 0.
-    #absorbers_train = train_data
-    # Or just train on CIV?
-    absorbers_train = train_data[train_data['isabs'] == flag]
+    # index of 0. 
+    absorbers_train = train_data
+    # Or just train on CIV:
+    #absorbers_train = train_data[train_data['isabs'] == flag]
 
     print("Test data...")
     test_data  = pd.read_pickle(testfile)  
@@ -119,6 +122,20 @@ def read_data(trainfile,testfile, flag):
     absorbers = pd.concat([absorbers_train,absorbers_test])
 
     return absorbers, idx_split, original_id_test
+    """
+
+    # The training set used here should resemble the data that it will be 
+    # actually used on. Therefore we don't use the training data from the 
+    # classifier, but instead use the test data from there where absorbers 
+    # are selected based on the absorber type prediction as will happen in 
+    # practice
+    test_data  = pd.read_pickle(testfile)  
+    preds_prob_flag = np.array([i[flag] for i in test_data['preds_probability']])
+    absorbers_test = test_data[preds_prob_flag>0.3]
+    original_id_test = np.where(preds_prob_flag>0.3)[0]
+
+    return absorbers, original_id_test #absorbers, idx_split, original_id_test
+
 
 def run_regressor(X,Y):
     """
@@ -149,13 +166,13 @@ def find_target_index(absorbers,zarr, restwl, flag):
     target_index = []
 
     for i in range(len(absorbers)):
-        #if (absorbers.iloc[i])['isabs'] != flag:
-        #    target_index.append(0)
-        #else:
-        wi = obswl[i]
-        absi = absorbers.iloc[i]
-        wavei = absi.wave
-        target_index.append(np.where(abs(wavei-wi) == min(abs(wavei - wi)))[0][0])
+        if (absorbers.iloc[i])['isabs'] != flag:
+            target_index.append(-999)
+        else:
+            wi = obswl[i]
+            absi = absorbers.iloc[i]
+            wavei = absi.wave
+            target_index.append(np.where(abs(wavei-wi) == min(abs(wavei - wi)))[0][0])
         
     return target_index
 
@@ -201,7 +218,7 @@ def extractInfo(absorbers):
     return z_abs,flux
 
 def preprocess(absorbers,target_index,flux,z_abs,idx_split):
-    #split into train and test
+    # Split into train and test
     absorbers_train = absorbers[:idx_split]
     absorbers_test = absorbers[idx_split:]
 
@@ -246,6 +263,7 @@ def remove_duplicates(testdict,preds_idx,original_id_test):
     chosen_target_idx: numpy array
     chosen_z: numpy array
     """
+
     test_absorbers = testdict['absorbers']    
     test_specNum = []
     for _,i in enumerate(test_absorbers['absInfo']):
@@ -311,13 +329,15 @@ if flag == 1:
 elif flag == 2:
     restwl = 2796
 
-print("Reading data...")
 # classification model name
-classModel = "model_spec9557_EW0.2_withWeakFlag.joblib"
-absorbers, idx_split, original_id_test = read_data('train_data.pkl','testFine_data.pkl', flag)
+#classModel = "model_spec9557_EW0.2_withWeakFlag.joblib"
+
+print("Reading data...")
+#absorbers, idx_split, original_id_test = read_data('train_data.pkl','testFine_data.pkl', flag)
+absorbers, original_id_test = read_data('testFine_data.pkl', flag)
 
 print("Extracting absorber information...")
-#extract and reformat absorber information
+# Extract and reformat absorber information
 z_abs, flux = extractInfo(absorbers)
 
 print("Finding target index...")
@@ -326,35 +346,35 @@ print("Finding target index...")
 target_index = find_target_index(absorbers,z_abs, restwl, flag)
 
 print("Preprocessing data...")
-#preprocess and split into train and test samples
+# Preprocess and split into train and test samples
+idx_split = int(len(absorbers)*0.7)
 traindict, testdict = preprocess(absorbers,target_index,flux,z_abs,idx_split)
 
 print("Creating and training model...")
-#run random forest regression model
+# Run random forest regression model
 model = run_regressor(traindict['flux'], traindict['target_index'])
 
-print("Saving model...")
+print("Saving the model...")
 import joblib
 joblib.dump(model, "regression_" + classModel)
 
 print("Making predictions...")
-#use model to predict index on test sample
+# Use model to predict index on test sample
 preds_idx = model.predict(testdict['flux']).astype(int)
 
 print("Removing duplicates...")
 chosen_absorbers, chosen_preds_idx, chosen_target_idx, chosen_z = remove_duplicates(testdict,preds_idx,original_id_test)
 
-#convert index back to redshift
+# Convert index back to redshift
 preds_z = index_to_redshift(preds_idx,testdict['absorbers'], restwl)
 chosen_preds_z = index_to_redshift(chosen_preds_idx,chosen_absorbers, restwl)
 
-#create plots to see results of regression
+# Create plots to see results of regression
 #create_regression_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'])
 create_regression_plots(chosen_preds_z,chosen_z,chosen_preds_idx,chosen_target_idx)
 
-
-#create plots to investigate outliers
-#create_outlier_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'],testdict['absorbers'])
+# Create plots to investigate outliers
+create_outlier_plots(preds_z,testdict['z'],preds_idx,testdict['target_index'],testdict['absorbers'])
 #create_outlier_plots(preds_z,chosen_z,chosen_preds_idx,chosen_target_idx,chosen_absorbers)
 
 
